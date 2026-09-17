@@ -9,6 +9,10 @@ config.json
 *.bak
 *.bak-*
 
+# Role cards are private: they name the owner, QQ number and the way you talk to each other.
+# The bridge reads this directory at runtime, but the cards themselves never belong in a repo.
+roles/
+
 # Local development / planning / research docs (not part of public project)
 /PROJECT_GUIDE.md
 /ARCH_REVIEW.md

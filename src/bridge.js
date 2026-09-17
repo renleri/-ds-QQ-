@@ -5244,7 +5244,7 @@ async function main() {
 
   /**
    * 把截图归档到 screen.archiveDir（默认 D:\鲸鱼娘的查岗记录）。
-   * 命名：2026-09-13_2152_private-1773543207.jpg
+   * 命名：2026-09-13_2152_private-(users qq number).jpg
    * 同时往 index.tsv 追加一行（时间 / 会话 / 文件 / 大小），超量时删最旧的。
    */
   function archiveScreenShot(srcPath, key, sizeKb) {

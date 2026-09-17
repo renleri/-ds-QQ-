@@ -41,7 +41,7 @@
 | 内核 | `src/mcp-web-search-safe.js` | 给 DSH agent 用的只读 Web Search MCP（查网络用语/梗） |
 | 外核 | `public/console.html` | 本地控制台：状态、参数、手动切换、重置 |
 | 外核 | `config.json` | 运行配置（白名单、QQ/DSH 地址、社交参数）；**不入库** |
-| 外核 | `roles/*.md` | 人格卡（如 `小鲸鱼.md`） |
+| 外核 | `roles/*.md` | 人格卡（私人内容，**本地目录、不入库**，已在 `.gitignore`） |
 | 外核 | `state/*` | 运行时状态（会话映射、模式、日志）；**不入库** |
 | 外核 | `start.bat` / `restart.bat` | 守护启动 / 一键重启 |
 | 外核 | `scripts/*` | 测试/辅助脚本 |
@@ -64,10 +64,9 @@ qq-bridge/
 │   └── self-test.js            # DSH 侧自检
 ├── public/
 │   └── console.html            # 控制台单页（含黑话/记忆/表情管理）
-├── roles/
-│   ├── 小鲸鱼.md               # 当前人格卡
-│   ├── 傲娇助手.md
-│   └── README.md
+├── roles/                      # 角色卡目录（本地私有，不进仓库：已在 .gitignore）
+│   ├── <角色名>.md             # 文件名即角色名；桥接每轮把卡注入 prompt
+│   └── README.md               # 卡的写法说明
 ├── docs/
 │   ├── PROJECT_GUIDE.md        # 本文档（公开版）
 │   └── DSH_SETUP.md            # DSH 端安装说明（另一台设备）
