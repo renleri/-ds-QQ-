@@ -1,0 +1,352 @@
+{
+  "repo": "Derpyu520/qq-bridge",
+  "ref": "main",
+  "fetchedAt": "2026-09-10T15:45:30.458Z",
+  "ok": 55,
+  "skipped": 0,
+  "failed": 2,
+  "manifest": [
+    {
+      "path": "/.npmrc",
+      "size": 22,
+      "status": "ok",
+      "sha256": "oJO7L+1Z1pm3+aYqUgPMGWBUxiTpw5xtkIyefbXdJGQ="
+    },
+    {
+      "path": "/.gitignore",
+      "size": 721,
+      "status": "ok",
+      "sha256": "EqvIZgQ/cRrCOVNHlkmqfJG6zN6W0xf9ZVPUHPWHDRs="
+    },
+    {
+      "path": "/docs/DSH_SETUP.md",
+      "size": 5162,
+      "status": "ok",
+      "sha256": "He6J9g7RmkMr6lmBq1ivJEhpykRYDS+myxqQIT5mn5I="
+    },
+    {
+      "path": "/config.example.json",
+      "size": 6090,
+      "status": "ok",
+      "sha256": "qgdzrY6Hv3PbGcaFVINMq3pCZX265/XZra7axOrqo7Y="
+    },
+    {
+      "path": "/docs/PROJECT_GUIDE.md",
+      "size": 17409,
+      "status": "ok",
+      "sha256": "+by69UU3s/UIimqCvQr8l58wBAsfxbOIdIuDmMgvMfY="
+    },
+    {
+      "path": "/dsh/agent-presets/qq-chat/preset.yml",
+      "size": 153,
+      "status": "ok",
+      "sha256": "hk7e9IhshRh5oAOgQHvjQia/TdzMThLlP0b+aMqK5eo="
+    },
+    {
+      "path": "/dsh/agent-presets/qq-chat/agent.cordis.yml",
+      "size": 7409,
+      "status": "ok",
+      "sha256": "EUE/q+BFsR5LRZ8Z7t9wkBh2YETPgMn8QOEZxt6dFgw="
+    },
+    {
+      "path": "/dsh/agent-presets/qq-chat/qq-tool-restrict.mjs",
+      "size": 2711,
+      "status": "ok",
+      "sha256": "B/H1FCER5AlvTMgklXZse8NciKdVS7vuu+I7cycqKkM="
+    },
+    {
+      "path": "/dsh/agent-presets/qq-chat-v2/agent.cordis.yml",
+      "size": 31812,
+      "status": "ok",
+      "sha256": "+2aWgustKKB91sf+OBXW8FOudFZDeNXZ4tLjmNAUtMU="
+    },
+    {
+      "path": "/dsh/agent-presets/qq-chat-v2/qq-tool-restrict.mjs",
+      "size": 2711,
+      "status": "ok",
+      "sha256": "B/H1FCER5AlvTMgklXZse8NciKdVS7vuu+I7cycqKkM="
+    },
+    {
+      "path": "/package.json",
+      "size": 1015,
+      "status": "ok",
+      "sha256": "TiuJHYDMtlLJZfj+68PKOFdBTi4oxBaQMwThyp7Qn+A="
+    },
+    {
+      "path": "/assets/deepseek娘.png",
+      "size": 467124,
+      "status": "ok",
+      "sha256": "RZARP3VRq/0lyMsqL7fM/cEKIXystr9j0yoW/p0TrAY="
+    },
+    {
+      "path": "/package-lock.json",
+      "size": 66017,
+      "status": "ok",
+      "sha256": "+0JVyDNE1Lydd/7SAjbv4juFupQCfFvQgOEyDlW46ZM="
+    },
+    {
+      "path": "/plugins/qq-mode-console/cordis.patch.yml",
+      "size": 81,
+      "status": "ok",
+      "sha256": "GL9BLr195o4HfA444hvEaPbDKrP49ZjcWQLmIc7E6tE="
+    },
+    {
+      "path": "/plugins/qq-mode-console/lib/index.js",
+      "size": 2163,
+      "status": "ok",
+      "sha256": "xpdNUzc403cYuJPmpU/RNbzWnChAbidefyYJat0a8w4="
+    },
+    {
+      "path": "/plugins/qq-mode-console/package.json",
+      "size": 384,
+      "status": "ok",
+      "sha256": "onGLRO9p/CgikqmP5IfFXw7B8g8TbcPz/ECC3C3NAwk="
+    },
+    {
+      "path": "/dsh/agent-presets/qq-chat-v2/preset.yml",
+      "size": 196,
+      "status": "ok",
+      "sha256": "wwTxNEDhDIiRLRp+3HE80cta4QZhfeayPtKrTb4t8Mg="
+    },
+    {
+      "path": "/public/console.html",
+      "size": 128049,
+      "status": "ok",
+      "sha256": "b3w4GVfmnX5ndkNOFnf4trP85jThi1BWxID5MMwI6qU="
+    },
+    {
+      "path": "/README.en.md",
+      "size": 5181,
+      "status": "ok",
+      "sha256": "btlAbbevavwPk4CnkilRz9VE74P2/ldQDcB4guRkci8="
+    },
+    {
+      "path": "/README.md",
+      "size": 12321,
+      "status": "ok",
+      "sha256": "6UfUBGXI3pWBAo6vbpD+3zRr26BKYa/kLhAwcrZ06Q8="
+    },
+    {
+      "path": "/roles/傲娇助手.md",
+      "size": 497,
+      "status": "ok",
+      "sha256": "EtCSAqKSGTTmFJrEabFrJ/fXja7mrMU15TjGzGZzJSY="
+    },
+    {
+      "path": "/roles/README.md",
+      "size": 1117,
+      "status": "ok",
+      "sha256": "4rOl/ZjQFicjMZ7BVg6Wb4FMtd6C8fBu9DfqWrxTMEw="
+    },
+    {
+      "path": "/roles/小鲸鱼.md",
+      "size": 18135,
+      "status": "ok",
+      "sha256": "CTol0Y5l6IH46HWF2rU0cGW398WZiYUtm5eYUTFK0VA="
+    },
+    {
+      "path": "/RULES.md",
+      "size": 7788,
+      "status": "ok",
+      "sha256": "dKv+Y6qfIv3QhMWu5PyGf3fJw2BxsheGrMIG4jUin0o="
+    },
+    {
+      "path": "/restart.bat",
+      "size": 786,
+      "status": "FAILED",
+      "error": "HTTP 403"
+    },
+    {
+      "path": "/scripts/check-onebot-status.mjs",
+      "size": 2893,
+      "status": "ok",
+      "sha256": "9fwrQxDWiwkWlJLfj9GcE7eCEjqasVhvCqtb8DXSXRI="
+    },
+    {
+      "path": "/scripts/patch-snowluma-sdk.mjs",
+      "size": 1797,
+      "status": "ok",
+      "sha256": "zDudpSuw29I+Y2g7IH1qQVhABOr/cSKezp6xt0vS7NY="
+    },
+    {
+      "path": "/scripts/send-test-group.mjs",
+      "size": 1840,
+      "status": "ok",
+      "sha256": "T5l03F33RDVj1GQEPTC4QhrdOUXoGiWfKpJww0zk1cg="
+    },
+    {
+      "path": "/scripts/setup-dsh.mjs",
+      "size": 8939,
+      "status": "ok",
+      "sha256": "+V3FxWk4W0SXl0DkPqmkb7aap1/ZiWuQ0ZWscz7MARQ="
+    },
+    {
+      "path": "/scripts/test-console.mjs",
+      "size": 4388,
+      "status": "ok",
+      "sha256": "YQMevjUaVzey/M4ZHr3qtfdNZKgcFpvluMqn3g5MR2s="
+    },
+    {
+      "path": "/scripts/test-forward.mjs",
+      "size": 7885,
+      "status": "ok",
+      "sha256": "HE12PZ+SvLDnr1mCLkuxNutMECB3HFDfQBa9mMMyJA4="
+    },
+    {
+      "path": "/scripts/test-mcp-exec.mjs",
+      "size": 2014,
+      "status": "ok",
+      "sha256": "fEpYq/eqjwzM9jgJewo2c5popqLLA1esGIOrBmzjJBQ="
+    },
+    {
+      "path": "/scripts/test-mcp-host.mjs",
+      "size": 1035,
+      "status": "ok",
+      "sha256": "4ERzlvicbx8NtlojyhrtHi719fPkuf7+3bbkJgLyjr8="
+    },
+    {
+      "path": "/scripts/test-mcp-safe.mjs",
+      "size": 5247,
+      "status": "ok",
+      "sha256": "3PUZkD/bkypatkArjm1d5IVXPXROin9x9rfzUYcI3SM="
+    },
+    {
+      "path": "/scripts/test-mcp-web-search.mjs",
+      "size": 1698,
+      "status": "ok",
+      "sha256": "jQbtORMTpQhr0EaF4AAOy0xBQTyJe4363Oq5n6ZFAfs="
+    },
+    {
+      "path": "/scripts/test-md-to-plain.mjs",
+      "size": 2657,
+      "status": "ok",
+      "sha256": "nQKomHspQDsv0eNvwgZyINYs3uFoKl88HpnPcpD95fI="
+    },
+    {
+      "path": "/scripts/test-onebot-connection.mjs",
+      "size": 1954,
+      "status": "ok",
+      "sha256": "6iuZW1psf78pRIDfa8DVGPcNIiuyZGP7swNIy6KRS7c="
+    },
+    {
+      "path": "/scripts/test-slang-learn.mjs",
+      "size": 2280,
+      "status": "ok",
+      "sha256": "uV9m7m12w4mCCU87JVx/8j/VyREZSnxzYV6Btg/Li74="
+    },
+    {
+      "path": "/assets/project-intro.mp4",
+      "size": 11463561,
+      "status": "ok",
+      "sha256": "z6rbca0+4pel6gUYJA2AVduXQ1i79ax7we3NK1bTKZI="
+    },
+    {
+      "path": "/scripts/test-vision-media.mjs",
+      "size": 3372,
+      "status": "ok",
+      "sha256": "TERqUl3Ojrn+0fC7jWkQEmNiQk2212vS33hiOf0ZW+I="
+    },
+    {
+      "path": "/scripts/test-stickers.mjs",
+      "size": 7545,
+      "status": "ok",
+      "sha256": "gsyTuvIm5KRKuqLS88KoeS9SgAa1oPUIr6aea2IIVko="
+    },
+    {
+      "path": "/scripts/test-v2-wait.mjs",
+      "size": 2452,
+      "status": "ok",
+      "sha256": "u8iRFGc+I8v8f3iVnV8AVb292/TMofBjoC48yrtIfV0="
+    },
+    {
+      "path": "/src/dsh-client.js",
+      "size": 6158,
+      "status": "ok",
+      "sha256": "23yIn9UJWLvvxxyOZinegEOS9DYO37xWy2XoKt3FF/U="
+    },
+    {
+      "path": "/src/bridge.js",
+      "size": 435461,
+      "status": "ok",
+      "sha256": "0Kjq0TAhUfvCG8rSyXNLXBWK6bUAZtVKnk98B/dRKVk="
+    },
+    {
+      "path": "/src/forward.js",
+      "size": 8046,
+      "status": "ok",
+      "sha256": "dDZ3j4kCJbepKLh2bxEgZy2oasA1bajFePx6sLIZX/Q="
+    },
+    {
+      "path": "/src/mcp-host-server.js",
+      "size": 9251,
+      "status": "ok",
+      "sha256": "UdmIbm418vj6SSrcLAAROJ0kPvKr75qEwLrXiT9s6g4="
+    },
+    {
+      "path": "/src/mcp-snowluma-safe.js",
+      "size": 61693,
+      "status": "ok",
+      "sha256": "+4yYGE+O0kGlt2ssclEXtx/5CHgMPXFvBBZpUo9iKhU="
+    },
+    {
+      "path": "/src/mcp-web-search-safe.js",
+      "size": 13186,
+      "status": "ok",
+      "sha256": "Z5hWUNKQy/A2NJ9My4ZTYLVOiMKVFmLI6LPq4LUxEfE="
+    },
+    {
+      "path": "/src/safe-fetch.js",
+      "size": 12126,
+      "status": "ok",
+      "sha256": "fxn9aUVTC8RdrYYcq8TQ1Yz/eI3vdlXWyuqO/GUC7G4="
+    },
+    {
+      "path": "/src/md-to-plain.js",
+      "size": 2571,
+      "status": "ok",
+      "sha256": "SAeZhNHrP4iOSjcJisZufN2B32nhvaOlOABmw67S4t4="
+    },
+    {
+      "path": "/src/sensitive.js",
+      "size": 592,
+      "status": "ok",
+      "sha256": "1dmRu4oYvuDkndLdPi4U66TgpqY/fRlXEQXwjXCr+o0="
+    },
+    {
+      "path": "/src/self-test.js",
+      "size": 3209,
+      "status": "ok",
+      "sha256": "nEUL2eS7dPlZc3CnBxhph42ltgHa+6Zsz/0wG4Q95bk="
+    },
+    {
+      "path": "/src/slang-learner.js",
+      "size": 9672,
+      "status": "ok",
+      "sha256": "6TIcPU11A/wClE4VORY31GZLMYYxT2RU835C0y4uXPs="
+    },
+    {
+      "path": "/src/sticker-lib.js",
+      "size": 10494,
+      "status": "ok",
+      "sha256": "9Ej09ATDKCYQa31PXL/40KZ92dPl8//DbL38sjNW9Bg="
+    },
+    {
+      "path": "/src/v2-wait.js",
+      "size": 1377,
+      "status": "ok",
+      "sha256": "iO7y0vJA6Tzrhl/J/HjUgN8iGfr71ytOWm964eXI7TY="
+    },
+    {
+      "path": "/test-dsh-v2-wait.mjs",
+      "size": 2253,
+      "status": "ok",
+      "sha256": "oCpHzj80wUwUeD1dpGLHRU19oRqseKeYsJIB74/ZSkE="
+    },
+    {
+      "path": "/start.bat",
+      "size": 325,
+      "status": "FAILED",
+      "error": "HTTP 403"
+    }
+  ]
+}
