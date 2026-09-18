@@ -238,12 +238,12 @@
       "probability": 0.3,
       "ownerPrivate": {
         "enabled": true,
-        "checkIntervalMinMs": 600000,
-        "checkIntervalMaxMs": 1500000,
-        "idleThresholdMs": 300000,
-        "probability": 0.8,
-        "recentReplyDampenMs": 600000,
-        "longSilenceMs": 7200000,
+        "checkIntervalMinMs": 300000,
+        "checkIntervalMaxMs": 780000,
+        "idleThresholdMs": 150000,
+        "probability": 0.9,
+        "recentReplyDampenMs": 240000,
+        "longSilenceMs": 5400000,
         "longSilenceProbability": 1
       }
     },
@@ -261,7 +261,7 @@
   "screen": {
     "enabled": true,
     "onlyOwnerPrivate": true,
-    "minIntervalMs": 300000,
+    "minIntervalMs": 180000,
     "maxWidth": 1440,
     "quality": 60,
     "archiveDir": "D:\\\\鲸鱼娘的查岗记录",

@@ -9,6 +9,62 @@
 // SnowLuma 会为 HTTP 监听器与 WS 监听器**各自生成独立的 accessToken**。
 // `accessToken` 作为共享回退值保留，`httpAccessToken` / `wsAccessToken` 按需覆盖，
 // 因此只配一个共享 token 的旧配置依旧可用。
+//
+// ─────────────────────────────────────────────────────────────────────────────
+// 【功能索引】本文件很大（8800+ 行）。下面按模块列出入口函数与**当前**行号，
+// 编辑器里可以直接跳转；行号会随编辑漂移，认不准时直接搜函数名更稳。
+//
+// 配置与启动
+//   809   main()                        进程入口：读配置、起 HTTP/WS 服务、串起所有模块
+//   269   sanitizeRoleName()            角色卡名 → 安全的会话目录名/标识
+//   6677  currentRoleHint()             当前生效的角色卡提示词片段
+//   6717  effectiveMaxMessageChars()    单条消息长度上限（按会话类型取值）
+//   6730  effectiveBurstMaxMessages()   一次连发的条数上限
+//
+// 聊天主链路（QQ → DSH → QQ）
+//   7814  handleIncoming()              OneBot 消息总入口：鉴权、白名单、分流
+//   6385  deliverPromptNow()            把攒好的提示词真正投给 DSH 会话
+//   1340  withSlangContext()            给提示词拼上「黑话」上下文
+//   8350  pumpMux()                     DSH 事件流消费循环（回复/提问/审批）
+//   5522  sendMessagesV2()              二代仿真发送：分条 + 人工间隔
+//   4913  onebotSend()                  实际调用 OneBot send_msg 的底层函数
+//   5861  getSocialV2State()            读写某会话的仿真状态（未读、唤醒、冷却…）
+//   7032  appendSocialV2Message()       把消息追加进会话的历史缓冲
+//
+// 窥屏（observe 群：只看不回，用来学群友说话）
+//   1494  isObservedGroup()             该群是否属于「只观察」名单
+//   1562  handleObservedGroupMessage()  观察群消息的处理：记账、喂黑话、不回复
+//   1537  autoCollectStickerObserved()  顺手收藏观察群里别人发的好用表情
+//
+// 群主专属群（ownerOnly：只有主人能触发她）
+//   1500  isOwnerOnlyGroup()
+//   1513  ownerOnlyReplyBlock()         非主人的发言要拦下来的判断
+//
+// 黑话学习
+//   1287  feedSlangWindow()             把新消息喂进滚动窗口
+//   1272  maybeQueueSlangExtraction()   攒够了就排队让模型抽黑话
+//
+// 截屏（主动开口前先看看主人在干什么）
+//   5189  screenAllowedFor()            这次会话允不允许截图
+//   5197  captureScreen()               调用 scripts/capture-screen.ps1 抓图
+//   5250  archiveScreenShot()           归档到「查岗记录」目录并维护索引/上限
+//   → 送给模型的提示词与「不许泄露隐私」约束见 7386 sendWakePromptV2()
+//
+// 主动机会（不等被叫，她主动来找人）
+//   7688  proactiveParams()            按会话类型解析频度/概率参数
+//   7721  scheduleProactiveCheckV2()   安排下一次主动机会检查
+//
+// 唤醒判定
+//   7268  evaluateWakeTriggerV2()      这条消息够不够格把她叫醒
+//   7314  buildWakePromptV2()          唤醒时给模型看的上下文
+//
+// 作品知识库
+//   835   knowledgeStore               知识库的读取/索引对象
+//   859   knowledgeBlock()             把命中的资料拼成提示词段落
+//
+// 重复发送保护
+//   5500  duplicateSendBlock()         同一内容短时间内不重复发（防 OneBot 假失败补发）
+// ─────────────────────────────────────────────────────────────────────────────
 /** OneBot HTTP API 的 Bearer 头（httpAccessToken 优先，回退共享 accessToken）。 */
 function oneBotHttpAuth(snowluma) {
   const token = snowluma?.httpAccessToken || snowluma?.accessToken;
