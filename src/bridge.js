@@ -11,59 +11,63 @@
 // 因此只配一个共享 token 的旧配置依旧可用。
 //
 // ─────────────────────────────────────────────────────────────────────────────
-// 【功能索引】本文件很大（8800+ 行）。下面按模块列出入口函数与**当前**行号，
+// 【功能索引】本文件很大（8900+ 行）。下面按模块列出入口函数与**当前**行号，
 // 编辑器里可以直接跳转；行号会随编辑漂移，认不准时直接搜函数名更稳。
 //
 // 配置与启动
-//   809   main()                        进程入口：读配置、起 HTTP/WS 服务、串起所有模块
-//   269   sanitizeRoleName()            角色卡名 → 安全的会话目录名/标识
-//   6677  currentRoleHint()             当前生效的角色卡提示词片段
-//   6717  effectiveMaxMessageChars()    单条消息长度上限（按会话类型取值）
-//   6730  effectiveBurstMaxMessages()   一次连发的条数上限
+//   813   main()                        进程入口：读配置、起 HTTP/WS 服务、串起所有模块
+//   273   sanitizeRoleName()            角色卡名 → 安全的会话目录名/标识
+//   6766  currentRoleHint()             当前生效的角色卡提示词片段
+//   6806  effectiveMaxMessageChars()    单条消息长度上限（按会话类型取值）
+//   6819  effectiveBurstMaxMessages()   一次连发的条数上限
 //
 // 聊天主链路（QQ → DSH → QQ）
-//   7814  handleIncoming()              OneBot 消息总入口：鉴权、白名单、分流
-//   6385  deliverPromptNow()            把攒好的提示词真正投给 DSH 会话
-//   1340  withSlangContext()            给提示词拼上「黑话」上下文
-//   8350  pumpMux()                     DSH 事件流消费循环（回复/提问/审批）
-//   5522  sendMessagesV2()              二代仿真发送：分条 + 人工间隔
-//   4913  onebotSend()                  实际调用 OneBot send_msg 的底层函数
-//   5861  getSocialV2State()            读写某会话的仿真状态（未读、唤醒、冷却…）
-//   7032  appendSocialV2Message()       把消息追加进会话的历史缓冲
+//   7903  handleIncoming()              OneBot 消息总入口：鉴权、白名单、分流
+//   6474  deliverPromptNow()            把攒好的提示词真正投给 DSH 会话
+//   1344  withSlangContext()            给提示词拼上「黑话」上下文
+//   8439  pumpMux()                     DSH 事件流消费循环（回复/提问/审批）
+//   5580  sendMessagesV2()              二代仿真发送：分条 + 人工间隔
+//   4971  onebotSend()                  实际调用 OneBot send_msg 的底层函数
+//   5919  getSocialV2State()            读写某会话的仿真状态（未读、唤醒、冷却…）
+//   7121  appendSocialV2Message()       把消息追加进会话的历史缓冲
 //
 // 窥屏（observe 群：只看不回，用来学群友说话）
-//   1494  isObservedGroup()             该群是否属于「只观察」名单
-//   1562  handleObservedGroupMessage()  观察群消息的处理：记账、喂黑话、不回复
-//   1537  autoCollectStickerObserved()  顺手收藏观察群里别人发的好用表情
+//   1498  isObservedGroup()             该群是否属于「只观察」名单
+//   1566  handleObservedGroupMessage()  观察群消息的处理：记账、喂黑话、不回复
+//   1541  autoCollectStickerObserved()  顺手收藏观察群里别人发的好用表情
 //
 // 群主专属群（ownerOnly：只有主人能触发她）
-//   1500  isOwnerOnlyGroup()
-//   1513  ownerOnlyReplyBlock()         非主人的发言要拦下来的判断
+//   1504  isOwnerOnlyGroup()
+//   1517  ownerOnlyReplyBlock()         非主人的发言要拦下来的判断
 //
 // 黑话学习
-//   1287  feedSlangWindow()             把新消息喂进滚动窗口
-//   1272  maybeQueueSlangExtraction()   攒够了就排队让模型抽黑话
+//   1291  feedSlangWindow()             把新消息喂进滚动窗口
+//   1276  maybeQueueSlangExtraction()   攒够了就排队让模型抽黑话
 //
 // 截屏（主动开口前先看看主人在干什么）
-//   5189  screenAllowedFor()            这次会话允不允许截图
-//   5197  captureScreen()               调用 scripts/capture-screen.ps1 抓图
-//   5250  archiveScreenShot()           归档到「查岗记录」目录并维护索引/上限
-//   → 送给模型的提示词与「不许泄露隐私」约束见 7386 sendWakePromptV2()
+//   5247  screenAllowedFor()            这次会话允不允许截图
+//   5255  captureScreen()               调用 scripts/capture-screen.ps1 抓图
+//   5308  archiveScreenShot()           归档到「查岗记录」目录并维护索引/上限
+//   → 送给模型的提示词与「不许泄露隐私」约束见 7475 sendWakePromptV2()
 //
 // 主动机会（不等被叫，她主动来找人）
-//   7688  proactiveParams()            按会话类型解析频度/概率参数
-//   7721  scheduleProactiveCheckV2()   安排下一次主动机会检查
+//   7777  proactiveParams()            按会话类型解析频度/概率参数
+//   7810  scheduleProactiveCheckV2()   安排下一次主动机会检查
 //
 // 唤醒判定
-//   7268  evaluateWakeTriggerV2()      这条消息够不够格把她叫醒
-//   7314  buildWakePromptV2()          唤醒时给模型看的上下文
+//   7357  evaluateWakeTriggerV2()      这条消息够不够格把她叫醒
+//   7403  buildWakePromptV2()          唤醒时给模型看的上下文
 //
 // 作品知识库
-//   835   knowledgeStore               知识库的读取/索引对象
-//   859   knowledgeBlock()             把命中的资料拼成提示词段落
+//   839   knowledgeStore               知识库的读取/索引对象
+//   863   knowledgeBlock()             把命中的资料拼成提示词段落
 //
 // 重复发送保护
-//   5500  duplicateSendBlock()         同一内容短时间内不重复发（防 OneBot 假失败补发）
+//   5558  duplicateSendBlock()         同一内容短时间内不重复发（防 OneBot 假失败补发）
+//
+// 「她到底看过没有」（防消息被静默吃掉，见 docs/事故复盘-晚安被吃掉.md）
+//   5978  markDeliveredV2()            记录她真正看过的最高消息序号（只有把内容交给她才推进）
+//   5986  unseenUnreadV2()             未读里她**从没看过**的那些
 // ─────────────────────────────────────────────────────────────────────────────
 /** OneBot HTTP API 的 Bearer 头（httpAccessToken 优先，回退共享 accessToken）。 */
 function oneBotHttpAuth(snowluma) {
@@ -2855,7 +2859,10 @@ async function main() {
           if (req.headers['x-agent-token'] && !v2SessionAllowed(key)) { sendJson({ ok: false, error: '目标不在当前模式允许范围内' }, 403); return; }
           if (req.headers['x-agent-token'] && !v2ToolEnabled('getUnread')) { sendJson({ ok: false, error: '工具未启用：qq_get_unread_messages' }, 403); return; }
           const st = getSocialV2State(key);
-          sendJson({ ok: true, key, unreadCount: st.unread.length, messages: st.unread.slice(-limit) });
+          const shown = st.unread.slice(-limit);
+          // 把消息内容交给她了 = 她看过了（这是 deliveredSeq 的主要来源）。
+          if (shown.length) markDeliveredV2(key, Math.max(...shown.map((m) => Number(m.seq) || 0)));
+          sendJson({ ok: true, key, unreadCount: st.unread.length, messages: shown });
           return;
         }
         if (req.method === 'GET' && url.pathname === '/api/socialV2/recent') {
@@ -2869,7 +2876,11 @@ async function main() {
           const st = getSocialV2State(key);
           const start = Math.max(0, st.recentMessages.length - offset - limit);
           const end = Math.max(0, st.recentMessages.length - offset);
-          sendJson({ ok: true, key, messages: st.recentMessages.slice(start, end) });
+          const shown = st.recentMessages.slice(start, end);
+          // 最近消息里就包含未读：翻过 = 看过了。只认别人发的（自己发的不影响未读判定）。
+          const maxOtherSeq = shown.reduce((acc, m) => (m && !m.isSelf ? Math.max(acc, Number(m.seq) || 0) : acc), 0);
+          if (maxOtherSeq) markDeliveredV2(key, maxOtherSeq);
+          sendJson({ ok: true, key, messages: shown });
           return;
         }
         if (req.method === 'POST' && url.pathname === '/api/socialV2/mark-read') {
@@ -2894,8 +2905,14 @@ async function main() {
             }, 400);
             return;
           }
-          const markedCount = st.unread.length;
-          st.unread = [];
+          // 只清「她确实看过」的那些（seq <= deliveredSeq）；回合进行中新到、她根本
+          // 没机会看到的（seq > deliveredSeq）必须留着，否则就是 2026-09-18 那次
+          // 「晚安被 mark_read 吃掉」的事故。保留下来的会被下面的补发保险重新唤醒。
+          const delivered = Number(st.deliveredSeq) || 0;
+          const keptUnread = st.unread.filter((m) => m && Number(m.seq) > delivered);
+          const markedCount = st.unread.length - keptUnread.length;
+          st.unread = keptUnread;
+          const keptCount = keptUnread.length;
           st.lastActionAt = Date.now();
           st.wakeConfig.noActionCount = 0;
           // 防止“有限潜水被 timeout 唤醒后 sleepUntil 被清空、又 mark_read 收尾”导致无定时器无触发条件的静默态。
@@ -2907,8 +2924,21 @@ async function main() {
           st.wakeConfig.confirmedBy = 'mark_read';
           markReadCalledKeys.add(key);
           saveSocialV2State();
-          log(`[reserved2] 控制台/工具标记 ${key} 未读已读：${markedCount} 条，已确认下一次唤醒配置`);
-          sendJson({ ok: true, key, markedCount, wakeGuaranteed: computeWakeSafetyV2(st.wakeConfig).guaranteed, wakeSafety: computeWakeSafetyV2(st.wakeConfig), wakeConfig: st.wakeConfig });
+          log(`[reserved2] 控制台/工具标记 ${key} 未读已读：${markedCount} 条${keptCount ? `，保留未看过的 ${keptCount} 条` : ''}，已确认下一次唤醒配置`);
+          sendJson({
+            ok: true,
+            key,
+            markedCount,
+            keptCount,
+            // 有保留时必须明说：这些消息她还没看过，潜水后会被重新唤醒一次。
+            note: keptCount
+              ? `注意：有 ${keptCount} 条消息是你从没看过的（回合进行中新到的，不在你本轮读到的范围里），已保留为未读。请先看它们再决定要不要睡——不然你会在没看到的情况下把它们当已读。`
+              : undefined,
+            keptPreview: keptCount ? keptUnread.slice(-5).map((m) => ({ seq: m.seq, sender: m.sender, text: String(m.text || m.plain || '').slice(0, 60) })) : undefined,
+            wakeGuaranteed: computeWakeSafetyV2(st.wakeConfig).guaranteed,
+            wakeSafety: computeWakeSafetyV2(st.wakeConfig),
+            wakeConfig: st.wakeConfig
+          });
           return;
         }
         if (req.method === 'POST' && url.pathname === '/api/socialV2/wake-config') {
@@ -3812,6 +3842,32 @@ async function main() {
           const maxMs = Math.max(minMs, Number(waitCfg.maxMs) || 600000);
           const timeoutMs = Math.min(maxMs, Math.max(minMs, Math.round(Number(body.timeoutMs) || defaultMs)));
           const st = getSocialV2State(key);
+          // 她**从没看过**的未读，比这次等待更早到——而下面的 baseline 取的是「开始等待
+          // 那一刻的 lastUnreadSeq」，所以这些消息永远不会作为 newMessages 冒出来。
+          // 2026-09-18 事故就是她这样白等了 5 分钟（主人在等待开始前 14 秒发了晚安），
+          // 醒来后以为没人说话。这里直接把它们交给她，并如实说明为什么它们不算「新消息」。
+          const unseenAtStart = unseenUnreadV2(st);
+          if (unseenAtStart.length) {
+            markDeliveredV2(key, Math.max(...unseenAtStart.map((m) => Number(m.seq) || 0)));
+            saveSocialV2State();
+            log(`[reserved2] wait 前置返回：${key} 有 ${unseenAtStart.length} 条没看过的未读，不进入长等待`);
+            sendJson({
+              ok: true,
+              key,
+              arrived: true,
+              unseenUnread: true,
+              quiet: false,
+              quietMs: 0,
+              speakerLikelyDone: false,
+              lastMessageUnfinished: false,
+              timeout: false,
+              waitedMs: 0,
+              newMessages: unseenAtStart,
+              unreadCount: st.unread.length,
+              note: `先别等——你没看过的未读还有 ${unseenAtStart.length} 条，它们比这次等待更早到，所以不会算作「等待期间的新消息」。先处理这些，再决定要不要继续等。`
+            });
+            return;
+          }
           // 同一会话只允许一个长轮询等待，避免并发挂起耗尽 HTTP handler。
           if (activeWaits.has(key)) {
             sendJson({ ok: false, error: '该会话已有一个等待中的 qq_wait_for_messages，请等待它结束' }, 429);
@@ -3889,6 +3945,8 @@ async function main() {
           }
           saveSocialV2State();
           const newMessages = arrived ? (Array.isArray(st.recentMessages) ? st.recentMessages : []).filter((m) => m && !m.isSelf && (m.seq || 0) > baseline) : [];
+          // 等到并交给她的新消息同样算「看过」，否则她 mark_read 时又会被判成没看过的。
+          if (newMessages.length) markDeliveredV2(key, Math.max(...newMessages.map((m) => Number(m.seq) || 0)));
           const lastNew = newMessages.length ? newMessages[newMessages.length - 1] : null;
           const lastMessageUnfinished = lastNew ? looksLikeUnfinished(String(lastNew.tail || lastNew.plain || lastNew.text || '')) : false;
           finishWait();
@@ -5890,6 +5948,8 @@ async function main() {
         preSleepWaitObservedAt: 0,
         preSleepWaitAccumMs: 0,
         lastUnreadSeq: 0,
+        // 她「真正看过」的最高消息序号（见 markDeliveredV2 的注释）。0 = 还没看过任何消息。
+        deliveredSeq: 0,
         activeTopics: [],
         pendingThoughts: [],
         memberImpressions: {}
@@ -5900,6 +5960,33 @@ async function main() {
       setupSleepTimerV2(key);
     }
     return st;
+  }
+
+  // ── 「她到底看过没有」──────────────────────────────────────────────────────
+  // 2026-09-18 事故复盘：23:25 主人连发两条 → 唤醒她 → 她读了未读、回了话，
+  // 然后调 qq_wait_for_messages(300s) 等主人再说话。23:26:08 主人发「晚安宝宝，爱你」，
+  // 这条在她**开始等待之前**就到了，而等待工具只认「等待开始后」的新消息（baseline =
+  // 当时的 lastUnreadSeq），所以她等了 5 分钟什么也没看见。超时后她以为主人睡了，
+  // 调 qq_mark_read 收尾——而这个接口把 unread 整个清空，那条没看过的晚安一起被吃掉；
+  // 更糟的是 turn/end 的「繁忙期间补发」保险判定「unread 里还有没有 >= seq 的消息」，
+  // unread 已经被清空 → 判定为「已被本回合处理」→ 补发被跳过 → 她安然睡去。
+  //
+  // 病根是「已读」被当成了「已处理」：mark_read 的语义其实是「我看过这些，选择不回」，
+  // 但桥接拿它当「这个序号之前的都处理完了」。修法就是记一个 deliveredSeq（她真正
+  // 看过的最高序号，只在 get_unread / get_recent / wait 真正把消息内容交给她时推进），
+  // 于是「没看过」和「看过不回」被彻底分开。
+  function markDeliveredV2(key, seq) {
+    const st = socialV2.conversations.get(key);
+    if (!st) return;
+    const n = Number(seq) || 0;
+    if (n > (Number(st.deliveredSeq) || 0)) st.deliveredSeq = n;
+  }
+
+  // 未读里她**从没看过**的那些（seq 大于 deliveredSeq）。
+  function unseenUnreadV2(st) {
+    if (!st) return [];
+    const delivered = Number(st.deliveredSeq) || 0;
+    return (Array.isArray(st.unread) ? st.unread : []).filter((m) => m && Number(m.seq) > delivered);
   }
 
   function loadSocialV2State() {
@@ -5942,6 +6029,7 @@ async function main() {
             preSleepWaitObservedAt: Number(val.preSleepWaitObservedAt) || 0,
             preSleepWaitAccumMs: Number(val.preSleepWaitAccumMs) || 0,
             lastUnreadSeq: Number(val.lastUnreadSeq) || 0,
+            deliveredSeq: Number(val.deliveredSeq) || 0,
             activeTopics: Array.isArray(val.activeTopics) ? val.activeTopics : [],
             pendingThoughts: Array.isArray(val.pendingThoughts) ? val.pendingThoughts : [],
             memberImpressions: (() => {
@@ -6014,6 +6102,7 @@ async function main() {
           preSleepWaitObservedAt: st.preSleepWaitObservedAt || 0,
           preSleepWaitAccumMs: st.preSleepWaitAccumMs || 0,
           lastUnreadSeq: st.lastUnreadSeq || 0,
+          deliveredSeq: Number(st.deliveredSeq) || 0,
           activeTopics: Array.isArray(st.activeTopics) ? st.activeTopics.slice(-50) : [],
           pendingThoughts: Array.isArray(st.pendingThoughts) ? st.pendingThoughts.slice(-50) : [],
           memberImpressions: st.memberImpressions && typeof st.memberImpressions === 'object' ? st.memberImpressions : {},
@@ -8536,7 +8625,12 @@ async function main() {
                   if (!item || typeof item !== 'object') {
                     // 兼容旧字符串残留
                   } else {
-                    const stillRelevant = Array.isArray(stEnd.unread) && stEnd.unread.some((m) => m && Number(m.seq) >= Number(item.seq));
+                    // 判定「这条积压的唤醒还有没有必要补发」：只要触发它的消息她**从没看过**
+                    // （seq 大于 deliveredSeq），就必须补发——不能因为 mark_read 把 unread
+                    // 清空就当成「已处理」（2026-09-18 事故就是这么漏掉那句晚安的）。
+                    const deliveredNow = Number(stEnd.deliveredSeq) || 0;
+                    const stillRelevant = Number(item.seq) > deliveredNow
+                      || (Array.isArray(stEnd.unread) && stEnd.unread.some((m) => m && Number(m.seq) >= Number(item.seq)));
                     if (stillRelevant) {
                       log(`[reserved2] ${key} 补发繁忙期间积压的唤醒：${item.reason}@seq${item.seq}`);
                       scheduleWakeV2(key, item.reason);

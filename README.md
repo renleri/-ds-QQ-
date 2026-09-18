@@ -167,6 +167,10 @@ qq-bridge/
   config.example.json   # 配置模板（脱敏占位符；真实 config.json 不入库）
   docs/
     PROJECT_GUIDE.md    # 公开版项目说明书
+    代码导读.md          # 按模块讲解主程序（给要改代码的人）
+    使用手册.md          # 日常使用/运维手册（给用它的人）
+    编码与代码页.md      # .ps1/.bat 的编码约定与踩坑记录
+    事故复盘-晚安被吃掉.md # 消息被 mark_read 静默吃掉的完整复盘与修法
   dsh/agent-presets/    # qq-chat / qq-chat-v2 的 DSH agent preset 模板
   plugins/qq-mode-console  # DSH 设置页 qq-mode 卡片插件
   src/
@@ -175,7 +179,9 @@ qq-bridge/
     md-to-plain.js      # Markdown → QQ 纯文本
     self-test.js        # DSH 侧自测
   scripts/              # 测试/运维脚本（含 postinstall 的 patch-snowluma-sdk.mjs）
-    patch-snowluma-sdk.mjs  # 修补 SDK 的 ESM 打包 bug（postinstall 自动执行）
+    patch-snowluma-sdk.mjs     # 修补 SDK 的 ESM 打包 bug（postinstall 自动执行）
+    sync-index.mjs             # 重算 bridge.js 顶部【功能索引】的行号（--check 只检查）
+    test-delivered-guard.mjs   # 回归测试：消息不会被 mark_read 静默吃掉
   state/                # 运行时数据（不入库）
 ```
 
