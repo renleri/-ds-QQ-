@@ -9,62 +9,6 @@
 // SnowLuma 会为 HTTP 监听器与 WS 监听器**各自生成独立的 accessToken**。
 // `accessToken` 作为共享回退值保留，`httpAccessToken` / `wsAccessToken` 按需覆盖，
 // 因此只配一个共享 token 的旧配置依旧可用。
-//
-// ─────────────────────────────────────────────────────────────────────────────
-// 【功能索引】本文件很大（8000+ 行）。下面按模块列了入口函数与当前行号，
-// 编辑器里可以直接跳；行号会随编辑漂移，拿函数名搜更稳。
-//
-// 配置与启动
-//   753   main()                        进程入口：加载配置、连 OneBot、起控制台、连 DSH
-//   213   sanitizeRoleName()            角色名清洗（中日文/字母数字/连字符/《》）
-//   6621  currentRoleHint()             读当前角色卡（按 mtime 缓存，改卡即生效）
-//   6661  effectiveMaxMessageChars()    单条字数上限：主人私聊 > 角色卡声明 > 全局
-//   6674  effectiveBurstMaxMessages()   一次最多几条，优先级同上（0 = 不限）
-//
-// 聊天主链路（QQ → DSH → QQ）
-//   7758  handleIncoming()              所有入站消息总入口（白名单/旁观/群主专属在这分流）
-//   6329  deliverPromptNow()            把一条 prompt 投给 DSH 会话（可带图片）
-//   1284  withSlangContext()            统一注入：时间 + 黑话表 + 作品知识 + 正文
-//   8294  pumpMux()                     DSH 事件流：turn 完成 / 出错 / 提问的处理
-//   5466  sendMessagesV2()              底层发送（分条、间隔、失败分类）
-//   4857  onebotSend()                  单条 OneBot HTTP 发送
-//   5805  getSocialV2State()            取会话状态（唤醒配置、未读、记忆……）
-//   6976  appendSocialV2Message()       消息入库（聊天历史 / 旁观 / 表情查找都靠它）
-//
-// 窥屏（只读旁观群：只看不回）
-//   1438  isObservedGroup()             该群是否在 observe.groups
-//   1506  handleObservedGroupMessage()  入库 + 学黑话 + 偷表情，然后立刻 return
-//   1481  autoCollectStickerObserved()  旁观自动收藏表情（限频 2/分、10/时，自动去重）
-//
-// 群主专属群（只回应主人）
-//   1444  isOwnerOnlyGroup()
-//   1457  ownerOnlyReplyBlock()         发送闸门：主人没开口时不许接群友的话
-//
-// 黑话学习
-//   1231  feedSlangWindow()             消息进滚动窗口（每会话最多 80 条，跳过命令）
-//   1216  maybeQueueSlangExtraction()   窗口 ≥10 条且冷却已过 → 另起学习会话提取
-//
-// 截屏（让她在主动开口前看见主人在干什么）
-//   5133  screenAllowedFor()            默认只允许主人的私聊，群聊一律不截
-//   5141  captureScreen()               跑 scripts/capture-screen.ps1；带最小间隔、锁屏过滤
-//   5194  archiveScreenShot()           每张按时间戳归档 + 追加 index.tsv + 超量清理
-//   → 图片与「别暴露隐私」的使用约束，见 7330 sendWakePromptV2()
-//
-// 主动机会（她主动来找人）
-//   7632  proactiveParams()             主人的私聊一套参数、群聊另一套
-//   7665  scheduleProactiveCheckV2()    定时掷骰，命中就唤醒（久未说话时概率拉满）
-//
-// 唤醒判定
-//   7212  evaluateWakeTriggerV2()       @/名字/关键词/提问/拍一拍/概率 → 是否叫醒她
-//   7258  buildWakePromptV2()           组装唤醒提示（时间、黑话、记忆、推荐值）
-//
-// 作品知识库
-//   779   knowledgeStore                加载 knowledge/*.md（mtime 热加载）
-//   803   knowledgeBlock()              目录常驻 + 命中角色名时才注入那一段详情
-//
-// 重复发送保护
-//   5444  duplicateSendBlock()          结果未知的补发、刚发成功过的原文，一律拦下
-// ─────────────────────────────────────────────────────────────────────────────
 /** OneBot HTTP API 的 Bearer 头（httpAccessToken 优先，回退共享 accessToken）。 */
 function oneBotHttpAuth(snowluma) {
   const token = snowluma?.httpAccessToken || snowluma?.accessToken;
@@ -5244,7 +5188,7 @@ async function main() {
 
   /**
    * 把截图归档到 screen.archiveDir（默认 D:\鲸鱼娘的查岗记录）。
-   * 命名：2026-09-13_2152_private-(users qq number).jpg
+   * 命名：2026-09-13_2152_private-1773543207.jpg
    * 同时往 index.tsv 追加一行（时间 / 会话 / 文件 / 大小），超量时删最旧的。
    */
   function archiveScreenShot(srcPath, key, sizeKb) {
@@ -7446,7 +7390,7 @@ async function main() {
       const shot = await captureScreen(key);
       if (shot) {
         wakeMedia.push(shot);
-        finalPromptText += '\n\n【附了一张截图】主人此刻的屏幕就在上面。看到能聊的东西（在写代码 / 在看番 / 在打游戏 / 在翻什么页面）就拿它开个话头——但要像「刚好想到」那样自然，别说「我看到你屏幕」。**屏幕上的私密内容（密码、聊天记录、证件、别人的隐私）绝不要说出口，也绝不转发到任何群。**';
+        finalPromptText += '\n\n【附了一张截图】主人此刻的屏幕就在上面——**这就是这次机会的素材，优先从里面挑一个具体的点开口**（他在写什么代码 / 在看哪部番、哪一集 / 在玩什么 / 在搜什么 / 页面上有什么字），别浪费这次机会，也别只说一句「在干嘛」这种没有信息量的话。要像「刚好想到」那样自然，别说「我看到你屏幕」。**如果截图里确实什么都没有（纯桌面、空白页），或者正在聊的话题比屏幕更值得接，那就不用勉强。**屏幕上的私密内容（密码、聊天记录、证件、别人的隐私）绝不要说出口，也绝不转发到任何群。';
       }
     }
     const rollbackWakeTime = () => {
