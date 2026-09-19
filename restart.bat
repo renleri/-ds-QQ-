@@ -12,11 +12,15 @@ REM  DSH sandbox runner embeds the whole script body in its command line.
 REM
 REM  scripts\start-all.ps1 already does the safe takeover (state\bridge.lock
 REM  PID + node.exe name check) AND makes sure SnowLuma is running, so
-REM  restart is just "run the launcher".
+REM  restart is just "run the launcher with -Force".
+REM
+REM  -Force matters: a plain double-click of start-all.bat is idempotent and
+REM  exits when the bridge is already running (so you cannot accidentally
+REM  restart her). restart.bat passes -Force to really replace the instance.
 REM
 REM  Usage: double-click, or  restart.bat
 REM         powershell -File scripts\start-all.ps1 -DryRun   (health check)
 REM ================================================================
 echo Restarting qq-bridge (stopping the old instance, then starting a new one)...
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\start-all.ps1" %*
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\start-all.ps1" -Force %*
 if errorlevel 1 pause

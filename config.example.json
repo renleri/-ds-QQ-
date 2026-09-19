@@ -14,7 +14,8 @@
     "wsAccessToken": "",
     "launcherPath": "C:\\path\\to\\SnowLuma\\launcher.bat",
     "homeDir": "C:\\path\\to\\SnowLuma",
-    "allowProcessControl": false
+    "allowProcessControl": false,
+    "botQQ": 0
   },
   "ownerQQ": 123456789,
   "sessionCwd": "",
