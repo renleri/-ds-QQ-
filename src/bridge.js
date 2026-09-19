@@ -2838,6 +2838,12 @@ async function main() {
             currentWakeConfig: st.wakeConfig,
             wakeSafety: computeWakeSafetyV2(st.wakeConfig),
             memory: formatMemoryV2(st),
+            // 长期记忆（独立存盘，不随会话状态丢失）。她也可以用 qq_memory_query(category="longTerm") 查。
+            longTerm: {
+              total: loadLongTerm(key).notes.length,
+              notes: loadLongTerm(key).notes.slice(-50),
+              block: formatLongTermV2(key)
+            },
             participation: formatParticipationV2(st),
             slang: {
               enabled: cfg.slang?.enabled !== false,
@@ -4266,12 +4272,20 @@ async function main() {
           const content = String(body.content ?? '').trim();
           const extra = body.extra && typeof body.extra === 'object' ? body.extra : {};
           if (!key || !category || !content) { sendJson({ ok: false, error: 'key/category/content 不能为空' }, 400); return; }
-          if (!['activeTopic', 'pendingThought', 'memberImpression'].includes(category)) { sendJson({ ok: false, error: 'category 必须是 activeTopic / pendingThought / memberImpression' }, 400); return; }
+          if (!['activeTopic', 'pendingThought', 'memberImpression', 'longTerm'].includes(category)) { sendJson({ ok: false, error: 'category 必须是 activeTopic / pendingThought / memberImpression / longTerm' }, 400); return; }
           if (category === 'memberImpression' && !String(extra.target || '').trim()) { sendJson({ ok: false, error: 'memberImpression 需要 extra.target 指定群友名字' }, 400); return; }
           if (req.headers['x-agent-token'] && !agentTokenOk(key, req.headers['x-agent-token'])) { sendJson({ ok: false, error: 'agent token 无效' }, 403); return; }
           if (req.headers['x-agent-token'] && !v2SessionAllowed(key)) { sendJson({ ok: false, error: '目标不在当前模式允许范围内' }, 403); return; }
           if (req.headers['x-agent-token'] && !v2ToolEnabled('memory')) { sendJson({ ok: false, error: '工具未启用：qq_memory_append' }, 403); return; }
           const st = getSocialV2State(key);
+          if (category === 'longTerm') {
+            // 长期记忆另存 state\memory\*.json：跟会话状态解耦，会话丢了它还在。
+            const note = appendLongTerm(key, content, { kind: extra.kind ? String(extra.kind) : 'note', tags: extra.tags });
+            if (!note) { sendJson({ ok: false, error: 'content 不能为空' }, 400); return; }
+            log(`[reserved2] 长期记忆 +1 (${key})：${note.text.slice(0, 40)}`);
+            sendJson({ ok: true, key, category, content: note.text, total: loadLongTerm(key).notes.length });
+            return;
+          }
           appendMemoryV2(st, category, content, extra);
           sendJson({ ok: true, key, category, content, memory: formatMemoryV2(st) });
           return;
@@ -4324,6 +4338,14 @@ async function main() {
             if (cleanNewExtra.interactionCount !== undefined) im.interactionCount = Math.max(0, Number(cleanNewExtra.interactionCount) || 0);
             if (newTarget !== oldTarget) delete st.memberImpressions[oldTarget];
             st.memberImpressions[newTarget] = im;
+          } else if (category === 'longTerm') {
+            // 长期记忆：按内容匹配删掉旧的、再写入新的（语义上等价于"改"）。
+            if (!oldContent) { sendJson({ ok: false, error: 'longTerm 需要 oldContent 指定要修改的那条记忆' }, 400); return; }
+            const removed = removeLongTerm(key, oldContent);
+            if (!removed) { sendJson({ ok: false, error: '找不到要编辑的长期记忆' }, 404); return; }
+            if (newContent !== undefined) appendLongTerm(key, newContent, { kind: 'note' });
+            sendJson({ ok: true, key, category, total: loadLongTerm(key).notes.length });
+            return;
           }
           saveSocialV2State();
           sendJson({ ok: true, key, category, memory: formatMemoryV2(st) });
@@ -4352,7 +4374,13 @@ async function main() {
             raw.activeTopics = [];
             raw.pendingThoughts = [];
           }
-          sendJson({ ok: true, key, category, formatted: formatMemoryV2({ ...st, ...raw }), raw });
+          // 长期记忆独立成一块：不在 social-v2 里，所以单独取。
+          const longTermStore = loadLongTerm(key);
+          raw.longTerm = category && category !== 'longTerm' ? [] : longTermStore.notes.slice(-50);
+          const formatted = category === 'longTerm'
+            ? formatLongTermV2(key)
+            : formatMemoryV2({ ...st, ...raw }) + (raw.longTerm.length ? formatLongTermV2(key) : '');
+          sendJson({ ok: true, key, category, formatted, raw });
           return;
         }
         if (req.method === 'POST' && url.pathname === '/api/socialV2/memory-remove') {
@@ -4362,7 +4390,7 @@ async function main() {
           const content = String(body.content ?? '').trim();
           const target = String(body.target ?? '').trim();
           if (!key || !category) { sendJson({ ok: false, error: 'key/category 不能为空' }, 400); return; }
-          if (!['activeTopic', 'pendingThought', 'memberImpression'].includes(category)) { sendJson({ ok: false, error: 'category 必须是 activeTopic / pendingThought / memberImpression' }, 400); return; }
+          if (!['activeTopic', 'pendingThought', 'memberImpression', 'longTerm'].includes(category)) { sendJson({ ok: false, error: 'category 必须是 activeTopic / pendingThought / memberImpression / longTerm' }, 400); return; }
           if (category === 'memberImpression' && !target) { sendJson({ ok: false, error: 'memberImpression 需要 target 指定群友名字' }, 400); return; }
           if (category === 'memberImpression' && ['__proto__', 'constructor', 'prototype'].includes(target)) { sendJson({ ok: false, error: '非法的群友名字' }, 400); return; }
           if (category !== 'memberImpression' && !content) { sendJson({ ok: false, error: '该类别需要 content 指定要删除的记忆内容' }, 400); return; }
@@ -4376,6 +4404,10 @@ async function main() {
             st.pendingThoughts = st.pendingThoughts.filter((t) => String(t?.text ?? '') !== content);
           } else if (category === 'memberImpression' && st.memberImpressions && typeof st.memberImpressions === 'object') {
             delete st.memberImpressions[target];
+          } else if (category === 'longTerm') {
+            const removed = removeLongTerm(key, content);
+            sendJson({ ok: true, key, category, removed, total: loadLongTerm(key).notes.length });
+            return;
           }
           saveSocialV2State();
           sendJson({ ok: true, key, category, memory: formatMemoryV2(st) });
@@ -4386,7 +4418,7 @@ async function main() {
           const key = String(body.key ?? '').trim();
           const category = String(body.category ?? '').trim();
           if (!key) { sendJson({ ok: false, error: 'key 不能为空' }, 400); return; }
-          if (category && !['activeTopic', 'pendingThought', 'memberImpression'].includes(category)) { sendJson({ ok: false, error: 'category 必须是 activeTopic / pendingThought / memberImpression' }, 400); return; }
+          if (category && !['activeTopic', 'pendingThought', 'memberImpression', 'longTerm'].includes(category)) { sendJson({ ok: false, error: 'category 必须是 activeTopic / pendingThought / memberImpression / longTerm' }, 400); return; }
           if (req.headers['x-agent-token'] && !agentTokenOk(key, req.headers['x-agent-token'])) { sendJson({ ok: false, error: 'agent token 无效' }, 403); return; }
           if (req.headers['x-agent-token'] && !v2SessionAllowed(key)) { sendJson({ ok: false, error: '目标不在当前模式允许范围内' }, 403); return; }
           if (req.headers['x-agent-token'] && !v2ToolEnabled('memory')) { sendJson({ ok: false, error: '工具未启用：qq_memory_clear' }, 403); return; }
@@ -4394,8 +4426,30 @@ async function main() {
           if (!category || category === 'activeTopic') st.activeTopics = [];
           if (!category || category === 'pendingThought') st.pendingThoughts = [];
           if (!category || category === 'memberImpression') st.memberImpressions = {};
+          if (!category || category === 'longTerm') clearLongTerm(key);
           saveSocialV2State();
           sendJson({ ok: true, key, category: category || 'all', memory: formatMemoryV2(st) });
+          return;
+        }
+        // 手动触发一次「长期记忆整理」：让她在一次静默回合里把值得长期记住的事写成文本，
+        // 桥接自动收录（不会给任何人发消息）。管理端自检 / 主人想立刻整理时用。
+        if (req.method === 'POST' && url.pathname === '/api/socialV2/long-term/summarize') {
+          const body = await readBody();
+          const key = String(body.key ?? '').trim();
+          if (!key) { sendJson({ ok: false, error: 'key 不能为空' }, 400); return; }
+          if (currentMode !== 'reserved2') { sendJson({ ok: false, error: '该接口仅 reserved2 模式可用' }, 403); return; }
+          if (!isSessionAllowedInCurrentMode(key)) { sendJson({ ok: false, error: '目标不在当前模式允许范围内' }, 403); return; }
+          const before = loadLongTerm(key).notes.length;
+          maybeSummarizeLongTerm(key, { force: true });
+          sendJson({ ok: true, key, before, hint: '已安排一次静默整理回合；几秒后看 state\\memory\\*.json 的条数' });
+          return;
+        }
+        // 长期记忆的原始内容（管理端查看/排障用）
+        if (req.method === 'GET' && url.pathname === '/api/socialV2/long-term') {
+          const key = String(url.searchParams.get('key') ?? '').trim();
+          if (!key) { sendJson({ ok: false, error: 'key 不能为空' }, 400); return; }
+          const store = loadLongTerm(key);
+          sendJson({ ok: true, key, total: store.notes.length, updatedAt: store.updatedAt, summarizedAt: store.summarizedAt, summarizedCount: store.summarizedCount, notes: store.notes, block: formatLongTermV2(key) });
           return;
         }
         // ── 二代黑话学习（reserved2）：AI 查询/提交黑话候选 ─────────────────
@@ -5748,6 +5802,7 @@ async function main() {
     silentContext: new Map(),      // key -> [{sender, text, time}]：选择性沉默但"已看到未回应"的消息，下次投递时带给模型
     loopTimer: null,
     silentTurns: new Map(),        // sessionId -> { id, ts }[]：待静默的摘要 turn 队列（FIFO + 超时回收）
+    longTermSummaryTurns: new Set(), // sessionId：这次静默回合是「长期记忆整理」，文本要收录进长期记忆
     pendingTimers: new Map(),      // key -> Set<timerId>：社交排程中尚未触发的定时器
     exitingSessions: new Set()     // sessionId：当前正在等待“活跃超时退场”发言完成的 DSH 会话
   };
@@ -6224,6 +6279,160 @@ async function main() {
     const burst = recent.filter((m) => m && !m.isSelf && Date.now() - Number(m.time || 0) < 15000).length;
     if (burst >= 3) return 12000;
     return defaultMs;
+  }
+
+  // ── 长期记忆（独立存储，不怕会话状态丢失）──────────────────────────────
+  // 2026-09-19 加，主人要求「加强记忆能力」。
+  // 短记忆（activeTopics / pendingThoughts / memberImpressions）挂在 social-v2.json 的会话里，
+  // 会话状态一丢就全没了；长期记忆另存 state\memory\<安全key>.json，
+  // 与对话本身解耦：她可以自己写（qq_memory_append category=longTerm），
+  // 桥接也会定期让她把这段对话浓缩几条写进来（见 maybeSummarizeLongTerm）。
+  const MEMORY_DIR = path.join(STATE_DIR, 'memory');
+  const longTermCache = new Map();
+
+  function memoryFileFor(key) {
+    return path.join(MEMORY_DIR, `${String(key).replace(/[^0-9a-zA-Z]+/g, '_')}.json`);
+  }
+
+  function loadLongTerm(key) {
+    const cached = longTermCache.get(key);
+    if (cached) return cached;
+    const raw = readJsonSafe(memoryFileFor(key), null);
+    const notes = Array.isArray(raw?.notes) ? raw.notes.filter((n) => n && n.text) : [];
+    const store = {
+      notes: notes.slice(-300),
+      updatedAt: Number(raw?.updatedAt) || 0,
+      summarizedAt: Number(raw?.summarizedAt) || 0,
+      summarizedCount: Number(raw?.summarizedCount) || 0
+    };
+    longTermCache.set(key, store);
+    return store;
+  }
+
+  function saveLongTerm(key) {
+    const store = longTermCache.get(key);
+    if (!store) return;
+    try {
+      fs.mkdirSync(MEMORY_DIR, { recursive: true });
+      store.updatedAt = Date.now();
+      atomicWriteJson(memoryFileFor(key), store);
+    } catch (error) {
+      log('保存长期记忆失败:', error?.message ?? error);
+    }
+  }
+
+  // 记一条长期记忆。同一条内容重复记只刷新时间，避免她反复写同一件事把表撑爆。
+  function appendLongTerm(key, text, opts = {}) {
+    const store = loadLongTerm(key);
+    const clean = String(text ?? '').replace(/\s+/g, ' ').trim().slice(0, 300);
+    if (!clean) return null;
+    const dup = store.notes.find((n) => n.text === clean);
+    if (dup) {
+      dup.at = Date.now();
+      if (opts.kind) dup.kind = opts.kind;
+      saveLongTerm(key);
+      return dup;
+    }
+    const note = { text: clean, at: Date.now(), kind: opts.kind || 'note' };
+    if (Array.isArray(opts.tags) && opts.tags.length) note.tags = opts.tags.slice(0, 6).map((t) => String(t).slice(0, 20));
+    store.notes.push(note);
+    if (store.notes.length > 300) store.notes.splice(0, store.notes.length - 300);
+    saveLongTerm(key);
+    return note;
+  }
+
+  function removeLongTerm(key, text) {
+    const store = loadLongTerm(key);
+    const needle = String(text ?? '').trim();
+    if (!needle) return 0;
+    const before = store.notes.length;
+    store.notes = store.notes.filter((n) => !String(n.text).includes(needle));
+    const removed = before - store.notes.length;
+    if (removed) saveLongTerm(key);
+    return removed;
+  }
+
+  function clearLongTerm(key) {
+    const store = loadLongTerm(key);
+    const removed = store.notes.length;
+    store.notes = [];
+    saveLongTerm(key);
+    return removed;
+  }
+
+  // 注入唤醒提示用。只带最近的 20 条，避免每次唤醒都把上下文撑大。
+  function formatLongTermV2(key) {
+    const store = loadLongTerm(key);
+    if (!store.notes.length) return '';
+    const lines = store.notes.slice(-20).map((n) => {
+      const d = new Date(Number(n.at) || Date.now());
+      const day = `${d.getMonth() + 1}/${d.getDate()}`;
+      return `- ${n.text}（${day}${n.kind === 'summary' ? '·整理' : ''}）`;
+    });
+    return `【长期记忆】这些是你自己以前特意记下来的事（共 ${store.notes.length} 条，这里显示最近 20 条）：\n${lines.join('\n')}\n\n`;
+  }
+
+  // ── 自动长期记忆整理 ────────────────────────────────────────────────────
+  // 主人 2026-09-19：「需要加强记忆能力」。短记忆只活在会话里，长期记忆要有人写。
+  // 做法：每积累够一批新对话（且距上次整理超过冷却时间），就用一次**静默回合**
+  // 让她自己把值得记的事浓缩成几条，通过 qq_memory_append(category="longTerm") 写下来。
+  // 为什么让她自己写而不是桥接调模型：她本来就有角色卡和上下文，浓缩质量更好，
+  // 而且不需要桥接再维护一条独立的模型调用链。
+  const LONG_TERM_SUMMARY_MIN_NEW = 30;                 // 至少新增这么多条消息
+  const LONG_TERM_SUMMARY_COOLDOWN_MS = 30 * 60 * 1000; // 两次整理之间至少隔 30 分钟
+
+  function maybeSummarizeLongTerm(key, opts = {}) {
+    if (cfg.socialV2?.enabled === false) return;
+    if (currentMode !== 'reserved2' || socialV2.paused) return;
+    try {
+      const store = loadLongTerm(key);
+      const st = getSocialV2State(key);
+      const recent = Array.isArray(st.recentMessages) ? st.recentMessages : [];
+      if (!opts.force) {
+        if (recent.length < 15) return;
+        if (recent.length - store.summarizedCount < LONG_TERM_SUMMARY_MIN_NEW) return;
+        if (store.summarizedAt && Date.now() - store.summarizedAt < LONG_TERM_SUMMARY_COOLDOWN_MS) return;
+      }
+      const sessionId = state.sessions[key];
+      if (!sessionId) return;
+
+      store.summarizedAt = Date.now();
+      store.summarizedCount = recent.length;
+      saveLongTerm(key);
+
+      const digest = recent.slice(-40).map((m) => {
+        const who = m.isSelf ? '你' : String(m.sender || '对方');
+        const text = String(m.text || m.plain || '').replace(/\s+/g, ' ').slice(0, 60);
+        return `${who}：${text}`;
+      }).join('\n');
+      const roleHint = currentRoleHint();
+      const longTermPrompt = `${roleHint ? roleHint + '\n\n' : ''}【长期记忆整理】这是一次**内部整理**，请绝对不要给任何人发消息、也不要调用任何发送工具。\n下面是你们最近的一段对话：\n${digest}\n\n请从中挑出**值得长期记住**的事（主人的偏好/习惯/重要日程/约定/正在做的项目，某个群友的固定信息等），浓缩成最多 6 条短句，每条不超过 40 字；只写事实，不要流水账、不要复述寒暄。\n**直接把这几条写成你的回复文本**（每行一条，行首可以用 - ），桥接会把它们收录进你的长期记忆——不需要调用任何工具。\n如果确实没有值得记的，就直接回一句「这次没有值得记的」。`;
+
+      const silentId = Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+      social.silentTurns.set(sessionId, [...(social.silentTurns.get(sessionId) ?? []), { id: silentId, ts: Date.now() }]);
+      social.longTermSummaryTurns.add(sessionId);
+      const popSilent = () => {
+        const arr = social.silentTurns.get(sessionId) ?? [];
+        const next = arr.filter((x) => x.id !== silentId);
+        if (next.length > 0) social.silentTurns.set(sessionId, next);
+        else social.silentTurns.delete(sessionId);
+      };
+      deliverPrompt(key, longTermPrompt, { silent: true }).then((result) => {
+        if (result && result.ok) {
+          log(`[reserved2] 长期记忆整理已投喂 ${key}（基于最近 ${recent.length} 条对话）`);
+        } else {
+          popSilent();
+          social.longTermSummaryTurns.delete(sessionId);
+          log(`[reserved2] 长期记忆整理投递被拒 ${key}: ${result?.error || '未知错误'}`);
+        }
+      }).catch((error) => {
+        popSilent();
+        social.longTermSummaryTurns.delete(sessionId);
+        log(`[reserved2] 长期记忆整理失败 ${key}: ${error?.message ?? error}`);
+      });
+    } catch (error) {
+      log('长期记忆整理检查失败:', error?.message ?? error);
+    }
   }
 
   function formatMemoryV2(st) {
@@ -7504,6 +7713,8 @@ async function main() {
     const tokenLine = `【会话令牌】${st.agentToken}（调用二代状态工具时请在参数中带上此令牌）\n\n`;
     const memoryText = formatMemoryV2(st);
     const memoryLine = memoryText ? `${memoryText}\n\n` : '';
+    // 长期记忆（独立的 state\memory\*.json）：会话状态丢了也还在，所以放在短记忆之后单独注入。
+    const longTermLine = formatLongTermV2(key);
     // 注意：黑话表不在这里注入，deliverPromptNow 的 withSlangContext 会统一注入，
     // 避免唤醒 prompt 出现两份黑话表。
     const participationText = formatParticipationV2(st);
@@ -7537,7 +7748,7 @@ async function main() {
     if (wcTr.anyMessage) wcTriggers.push('任意消息');
     if (Number(wcTr.probability) > 0) wcTriggers.push(`概率${wcTr.probability}`);
     const wakeLine = `【当前唤醒】${wcMode}，${wcTime}${wcTriggers.length ? `；触发：${wcTriggers.join('/')}` : ''}\n\n`;
-    const base = roleLine + tokenLine + antiAiLine + proactiveLine + stickerLine + preSleepLine + statusLine + wakeLine + memoryLine + participationLine;
+    const base = roleLine + tokenLine + antiAiLine + proactiveLine + stickerLine + preSleepLine + statusLine + wakeLine + longTermLine + memoryLine + participationLine;
     if (reason === 'bootstrap') {
       // 新会话（首次接入，或桥接重启后重建）：先把最近的对话回灌给她，
       // 否则她会「像第一次见面」——这正是主人 2026-09-19 反馈的问题。
@@ -8678,6 +8889,26 @@ async function main() {
                 silentQueue.shift();
                 if (silentQueue.length > 0) social.silentTurns.set(frame.sessionId, silentQueue);
                 else social.silentTurns.delete(frame.sessionId);
+                // 长期记忆整理回合：她把提炼结果直接写在回复文本里，桥接在这里收录。
+                // 为什么不让她调工具：MCP 的工具描述是 DSH 启动时加载的，
+                // 新增的 longTerm 类别要等下次重启 DSH 才认识；走文本这条路立刻可用。
+                if (social.longTermSummaryTurns.delete(frame.sessionId)) {
+                  const digest = String(ended.text ?? '').trim();
+                  if (digest) {
+                    let saved = 0;
+                    for (const raw of digest.split(/\r?\n/)) {
+                      const line = raw.replace(/^\s*(?:[-*•]|\d+[.、)])\s*/, '').trim();
+                      if (!line) continue;
+                      if (line.length > 300) continue;
+                      if (/^(好的|收到|明白|已记录|没有需要|无值得)/.test(line) && line.length < 20) continue;
+                      if (appendLongTerm(key, line, { kind: 'summary' })) saved++;
+                      if (saved >= 8) break;
+                    }
+                    log(`[reserved2] 长期记忆整理完成 ${key}：收录 ${saved} 条`);
+                  } else {
+                    log(`[reserved2] 长期记忆整理回合没有输出，跳过 ${key}`);
+                  }
+                }
                 log(`摘要投喂 turn 结束，静默 (${key})`);
                 continue;
               }
@@ -8741,6 +8972,9 @@ async function main() {
                   }
                 }
               }
+              // 长期记忆整理：每积累够一批新对话，就在这个「回合刚结束、会话空闲」的时机
+              // 用一次静默回合让她自己浓缩几条写进长期记忆（内部条件不满足时立即返回）。
+              maybeSummarizeLongTerm(key);
               if (ended.reason.kind === 'completed' && ended.text.trim()) {
                 const plain = mdToPlain(ended.text);
                 // 纯 Markdown/空白输出按“无文本”处理，避免后续 planSocialTimeline 拿空串崩溃。

@@ -648,11 +648,11 @@ server.tool(
 
 server.tool(
   'qq_memory_append',
-  '记录一条轻量记忆：activeTopic=进行中的话题；pendingThought=你想说但还没说的话；memberImpression=对某位群友的印象。记忆会持久化，并在后续唤醒/qq_get_prompt 中自动出现。',
+  '记录一条记忆。activeTopic=进行中的话题；pendingThought=你想说但还没说的话；memberImpression=对某位群友的印象；longTerm=**值得长期记住的事**（主人的偏好/习惯/重要日程/约定、某人的固定信息等，每条一句话、不要流水账）。四类都会持久化并在后续唤醒/qq_get_prompt 里自动出现；其中 longTerm 单独存盘，即使会话被清空也还在——**重要的事请主动记进 longTerm**。',
   {
     key: z.string().describe('会话 key，格式 group:群号 或 private:QQ号'),
     token: z.string().describe('会话令牌（见唤醒提示中的【会话令牌】）'),
-    category: z.enum(['activeTopic', 'pendingThought', 'memberImpression']).describe('记忆类别'),
+    category: z.enum(['activeTopic', 'pendingThought', 'memberImpression', 'longTerm']).describe('记忆类别'),
     content: z.string().describe('记忆内容，例如话题、想说的话、对某人的印象标签'),
     extra: z.object({
       target: z.string().optional().describe('memberImpression 时的群友名字/昵称'),
@@ -682,7 +682,7 @@ server.tool(
   {
     key: z.string().describe('会话 key，格式 group:群号 或 private:QQ号'),
     token: z.string().describe('会话令牌（见唤醒提示中的【会话令牌】）'),
-    category: z.enum(['activeTopic', 'pendingThought', 'memberImpression']).optional().describe('可选：只看某一类记忆')
+    category: z.enum(['activeTopic', 'pendingThought', 'memberImpression', 'longTerm']).optional().describe('可选：只看某一类记忆（activeTopic/pendingThought/memberImpression/longTerm）')
   },
   async ({ key, token, category }) => {
     try {
@@ -698,11 +698,11 @@ server.tool(
 
 server.tool(
   'qq_memory_remove',
-  '删除一条轻量记忆：activeTopic/pendingThought 用 content 匹配原文删除；memberImpression 用 target 参数指定群友名字删除。',
+  '删除一条记忆：activeTopic/pendingThought/longTerm 用 content 匹配原文删除；memberImpression 用 target 参数指定群友名字删除。',
   {
     key: z.string().describe('会话 key，格式 group:群号 或 private:QQ号'),
     token: z.string().describe('会话令牌（见唤醒提示中的【会话令牌】）'),
-    category: z.enum(['activeTopic', 'pendingThought', 'memberImpression']).describe('记忆类别'),
+    category: z.enum(['activeTopic', 'pendingThought', 'memberImpression', 'longTerm']).describe('记忆类别'),
     content: z.string().optional().describe('要删除的话题/想法原文（memberImpression 不需要）'),
     target: z.string().optional().describe('memberImpression 时要删除的群友名字')
   },
@@ -722,11 +722,11 @@ server.tool(
 
 server.tool(
   'qq_memory_clear',
-  '清空轻量记忆：不传 category 清空全部；传 activeTopic/pendingThought/memberImpression 只清空对应类别。',
+  '清空记忆：不传 category 清空全部；传 activeTopic/pendingThought/memberImpression/longTerm 只清空对应类别。',
   {
     key: z.string().describe('会话 key，格式 group:群号 或 private:QQ号'),
     token: z.string().describe('会话令牌（见唤醒提示中的【会话令牌】）'),
-    category: z.enum(['activeTopic', 'pendingThought', 'memberImpression']).optional().describe('要清空的类别，缺省清空全部')
+    category: z.enum(['activeTopic', 'pendingThought', 'memberImpression', 'longTerm']).optional().describe('要清空的类别，缺省清空全部')
   },
   async ({ key, token, category }) => {
     try {
