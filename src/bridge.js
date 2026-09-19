@@ -2726,6 +2726,7 @@ async function main() {
             const sid = state.sessions[key];
             if (sid) {
               delete state.sessions[key];
+          saveSessionsMap();
               reverse.delete(sid);
               collectors.delete(sid);
               v2TurnStartAt.delete(sid);
@@ -2738,6 +2739,7 @@ async function main() {
             socialV2.conversations.delete(key);
             seenForwardIds.delete(key);
           }
+          saveSessionsMap();
           pendingWakeKeys.clear();
           clearAllPendingWakeLeases();
           wakeConfigUpdatedKeys.clear();
@@ -4659,6 +4661,7 @@ async function main() {
           sessionEpoch++;
           const oldSessionId = state.sessions[key];
           delete state.sessions[key];
+          saveSessionsMap();
           reverse.delete(oldSessionId);
           collectors.delete(oldSessionId);
           sendToolSucceededSessions.delete(oldSessionId);
@@ -5672,6 +5675,7 @@ async function main() {
       // reset/清空工作区期间旧映射可能尚未清理；发现代际不匹配必须丢弃旧会话，防止复活。
       if (epoch !== sessionEpoch) {
         delete state.sessions[key];
+        saveSessionsMap();
         if (reverse.get(existing) === key) reverse.delete(existing);
         try { await api.workspace.archiveSession({ sessionId: existing }); } catch {}
       } else {
@@ -5715,6 +5719,7 @@ async function main() {
       }
       state.sessions[key] = sessionId;
       reverse.set(sessionId, key);
+      saveSessionsMap();
       saveState();
       await ensureVisionModel(sessionId);
       log(`新会话 ${key} -> ${sessionId}（模式 ${currentMode}，preset: ${modePreset(key, currentMode, cfg) ?? '默认'}）`);
@@ -5987,6 +5992,63 @@ async function main() {
     if (!st) return [];
     const delivered = Number(st.deliveredSeq) || 0;
     return (Array.isArray(st.unread) ? st.unread : []).filter((m) => m && Number(m.seq) > delivered);
+  }
+
+  // ── 会话映射持久化（state\sessions.json）──────────────────────────────
+  // 2026-09-19 主人反馈「她像第一次见面」。查出来的根因在这里：
+  // 文件一直在（STATE_FILE 常量也在），但**没有任何代码读写它**，最后一次更新停在 09-12。
+  // 于是每次重启桥接都新建一个 DSH 会话 → 她的对话记忆整段清零。
+  // 这里恢复读写；投递失败（DSH 里会话已不存在）时还会自愈重开，具体见 deliverPromptNow。
+  function loadSessionsMap() {
+    try {
+      const raw = readJsonSafe(STATE_FILE, null);
+      const map = raw && typeof raw.sessions === 'object' ? raw.sessions : (raw && typeof raw === 'object' ? raw : {});
+      let restored = 0;
+      for (const [key, sid] of Object.entries(map)) {
+        if (!/^(group|private):\d+$/.test(key)) continue;
+        const id = String(sid ?? '').trim();
+        if (!id || !/^session-/.test(id)) continue;
+        state.sessions[key] = id;
+        restored++;
+      }
+      if (restored) log(`已恢复 ${restored} 个会话映射（重启后她还能记得之前聊过什么）`);
+    } catch (error) {
+      log('恢复会话映射失败:', error?.message ?? error);
+    }
+  }
+
+  function saveSessionsMap() {
+    try {
+      const sessions = {};
+      for (const [key, sid] of Object.entries(state.sessions)) {
+        if (sid) sessions[key] = String(sid);
+      }
+      atomicWriteJson(STATE_FILE, { sessions });
+    } catch (error) {
+      log('保存会话映射失败:', error?.message ?? error);
+    }
+  }
+
+  // 状态滚动备份。2026-09-19 出现过 social-v2.json 里会话状态莫名丢失
+  // （私聊会话整个消失、只剩一个旁观群），当时没有任何备份可回滚。
+  // 每次启动留一份，最多 10 份；出问题时可以人工对比/找回。
+  function snapshotStateFiles() {
+    try {
+      const dir = path.join(STATE_DIR, 'backups');
+      fs.mkdirSync(dir, { recursive: true });
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      for (const name of ['social-v2.json', 'sessions.json']) {
+        const src = path.join(STATE_DIR, name);
+        if (!fs.existsSync(src)) continue;
+        fs.copyFileSync(src, path.join(dir, `${name}.${stamp}.bak`));
+      }
+      const olds = fs.readdirSync(dir).filter((f) => f.endsWith('.bak')).sort();
+      while (olds.length > 10) {
+        try { fs.unlinkSync(path.join(dir, olds.shift())); } catch { break; }
+      }
+    } catch (error) {
+      log('状态备份失败:', error?.message ?? error);
+    }
   }
 
   function loadSocialV2State() {
@@ -6265,6 +6327,10 @@ async function main() {
     saveSocialV2State();
   }
 
+  // 启动顺序有讲究：先给上一轮的状态留个备份（万一后面读到坏数据还能找回），
+  // 再恢复「会话 key → DSH 会话 ID」的映射，最后加载会话状态。
+  snapshotStateFiles();
+  loadSessionsMap();
   loadSocialV2State();
 
   function isSocialEnabled() {
@@ -6504,6 +6570,18 @@ async function main() {
       accepted = await api.sessions.prompt({ sessionId, mode: 'queue', content });
     } catch (error) {
       if (opts.farewell) social.exitingSessions.delete(sessionId);
+      // 自愈：持久化恢复出来的会话，DSH 那边可能已经不存在了（被清理 / 换工作区 / 换机器）。
+      // 这时如果直接抛错，她会永远收不到消息、而且日志只有一句"投递被拒"。
+      // 所以丢掉这个映射、重建一个新会话，再试一次。
+      const msg = String(error?.message ?? error);
+      const looksMissing = /session|会话/i.test(msg) && /not\s*found|不存在|unknown|invalid|missing|已删除|no such/i.test(msg);
+      if (!opts.__sessionRetried && looksMissing) {
+        log(`会话 ${sessionId} 已失效（${msg.slice(0, 80)}），丢弃映射并重建…`);
+        delete state.sessions[key];
+        if (reverse.get(sessionId) === key) reverse.delete(sessionId);
+        saveSessionsMap();
+        return deliverPromptNow(key, promptText, { ...opts, __sessionRetried: true });
+      }
       throw error;
     }
     if (!accepted.result.ok) {
@@ -7400,6 +7478,25 @@ async function main() {
     return null;
   }
 
+  // 把最近的对话压成一段「你还记得」的回灌文本，只在新建会话（bootstrap）时用。
+  // 为什么需要它：会话映射丢失/首装/换工作区时，DSH 那边是个空会话，她会**像第一次见面**。
+  // 有了这段，她至少记得最近这一阵子聊了什么（配合轻量记忆里的 activeTopics 效果最好）。
+  function formatRecapV2(st) {
+    const recent = Array.isArray(st?.recentMessages) ? st.recentMessages : [];
+    const picked = recent.slice(-20);
+    if (!picked.length) return '';
+    const lines = [];
+    for (const m of picked) {
+      if (!m) continue;
+      const who = m.isSelf ? '你' : String(m.sender || '对方');
+      const text = String(m.text || m.plain || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+      if (!text) continue;
+      lines.push(`${who}：${text}`);
+    }
+    if (!lines.length) return '';
+    return `【你记得的最近对话】下面这些是你们之前聊过的记录（**不是刚收到的新消息**，不要当成未读去回复）：\n${lines.join('\n')}\n\n`;
+  }
+
   function buildWakePromptV2(key, reason) {
     const roleState = readRoleState();
     const roleLine = roleState.role ? `【当前角色】${roleState.role}（完整角色卡请调用 qq_get_prompt 查看）\n\n` : '';
@@ -7442,7 +7539,10 @@ async function main() {
     const wakeLine = `【当前唤醒】${wcMode}，${wcTime}${wcTriggers.length ? `；触发：${wcTriggers.join('/')}` : ''}\n\n`;
     const base = roleLine + tokenLine + antiAiLine + proactiveLine + stickerLine + preSleepLine + statusLine + wakeLine + memoryLine + participationLine;
     if (reason === 'bootstrap') {
-      return `${base}【引导唤醒】你已接入 QQ 会话 ${key}。\n当前是二代仿真模式：你的文本输出不会自动发送到 QQ，所有发言必须通过工具完成。\n请先调用 qq_get_prompt 查看你的角色、推荐值、可用工具和当前状态，然后用 qq_set_wake_config 设置你希望如何被唤醒。`;
+      // 新会话（首次接入，或桥接重启后重建）：先把最近的对话回灌给她，
+      // 否则她会「像第一次见面」——这正是主人 2026-09-19 反馈的问题。
+      const recap = formatRecapV2(st);
+      return `${base}${recap}【引导唤醒】你已接入 QQ 会话 ${key}。\n当前是二代仿真模式：你的文本输出不会自动发送到 QQ，所有发言必须通过工具完成。\n请先调用 qq_get_prompt 查看你的角色、推荐值、可用工具和当前状态，然后用 qq_set_wake_config 设置你希望如何被唤醒。`;
     }
     if (reason === 'timeout') {
       return `${base}【唤醒】${key}\n原因：你设置的有限潜水时间已到；在你规定的时间内没有任何一项条件被触发，只是因为时间到了所以你被唤醒。\n你可以查看消息，或继续设置新的唤醒条件。`;
@@ -8023,6 +8123,7 @@ async function main() {
         if (old) {
           sessionEpoch++;
           delete state.sessions[key];
+          saveSessionsMap();
           reverse.delete(old);
           collectors.delete(old);
           sendToolSucceededSessions.delete(old);
