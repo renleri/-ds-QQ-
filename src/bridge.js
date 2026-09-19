@@ -4280,10 +4280,15 @@ async function main() {
           const st = getSocialV2State(key);
           if (category === 'longTerm') {
             // 长期记忆另存 state\memory\*.json：跟会话状态解耦，会话丢了它还在。
-            const note = appendLongTerm(key, content, { kind: extra.kind ? String(extra.kind) : 'note', tags: extra.tags });
+            // scope 决定要不要跨会话共享：主人私聊默认 global，群里默认 local。
+            const note = appendLongTerm(key, content, {
+              kind: extra.kind ? String(extra.kind) : 'note',
+              tags: extra.tags,
+              scope: extra.scope === 'global' || extra.scope === 'local' ? extra.scope : undefined
+            });
             if (!note) { sendJson({ ok: false, error: 'content 不能为空' }, 400); return; }
-            log(`[reserved2] 长期记忆 +1 (${key})：${note.text.slice(0, 40)}`);
-            sendJson({ ok: true, key, category, content: note.text, total: loadLongTerm(key).notes.length });
+            log(`[reserved2] 长期记忆 +1 (${key}${note.scope === 'global' ? '，跨会话共享' : ''})：${note.text.slice(0, 40)}`);
+            sendJson({ ok: true, key, category, content: note.text, scope: note.scope, total: loadLongTerm(key).notes.length, sharedTotal: loadGlobalLongTerm().notes.length });
             return;
           }
           appendMemoryV2(st, category, content, extra);
@@ -4449,7 +4454,33 @@ async function main() {
           const key = String(url.searchParams.get('key') ?? '').trim();
           if (!key) { sendJson({ ok: false, error: 'key 不能为空' }, 400); return; }
           const store = loadLongTerm(key);
-          sendJson({ ok: true, key, total: store.notes.length, updatedAt: store.updatedAt, summarizedAt: store.summarizedAt, summarizedCount: store.summarizedCount, notes: store.notes, block: formatLongTermV2(key) });
+          const g = loadGlobalLongTerm();
+          sendJson({
+            ok: true,
+            key,
+            total: store.notes.length,
+            sharedTotal: g.notes.length,
+            updatedAt: store.updatedAt,
+            summarizedAt: store.summarizedAt,
+            summarizedCount: store.summarizedCount,
+            notes: store.notes,
+            shared: g.notes,
+            block: formatLongTermV2(key)
+          });
+          return;
+        }
+        // 改一条长期记忆的作用域：global（所有会话生效）↔ local（只留本会话）
+        if (req.method === 'POST' && url.pathname === '/api/socialV2/long-term/scope') {
+          const body = await readBody();
+          const key = String(body.key ?? '').trim();
+          const text = String(body.content ?? body.text ?? '').trim();
+          const scope = String(body.scope ?? '').trim();
+          if (!key || !text) { sendJson({ ok: false, error: 'key/content 不能为空' }, 400); return; }
+          if (scope !== 'global' && scope !== 'local') { sendJson({ ok: false, error: 'scope 必须是 global 或 local' }, 400); return; }
+          const r = setLongTermScope(key, text, scope);
+          if (!r.ok) { sendJson({ ok: false, error: r.error }, 404); return; }
+          log(`[reserved2] 长期记忆作用域调整 (${key})：${r.text.slice(0, 30)} → ${r.scope}`);
+          sendJson({ ok: true, key, text: r.text, scope: r.scope, sharedTotal: loadGlobalLongTerm().notes.length });
           return;
         }
         // ── 二代黑话学习（reserved2）：AI 查询/提交黑话候选 ─────────────────
@@ -6290,6 +6321,40 @@ async function main() {
   const MEMORY_DIR = path.join(STATE_DIR, 'memory');
   const longTermCache = new Map();
 
+  // 跨会话共享（2026-09-20 加）：长期记忆分两个作用域。
+  //   global —— 从**主人私聊**记下的事（主人的偏好/习惯/约定/在做的项目），
+  //             同步进 state\memory\_global.json，任何会话都能看到 —— 所以她到哪儿都认得主人；
+  //   local  —— 从**群聊**记下的事（群友印象、群里的梗），只留在那个会话。
+  // 为什么不干脆全量互串：群友的隐私不能串场，主人私聊的内容更不能漏进群。
+  // 群里注入 global 记忆时会带一句「内部参考、绝不要说出口」的硬约束。
+  const GLOBAL_MEMORY_FILE = path.join(MEMORY_DIR, '_global.json');
+  const globalLongTermCache = { store: null };
+
+  function loadGlobalLongTerm() {
+    if (globalLongTermCache.store) return globalLongTermCache.store;
+    const raw = readJsonSafe(GLOBAL_MEMORY_FILE, null);
+    const notes = Array.isArray(raw?.notes) ? raw.notes.filter((n) => n && n.text) : [];
+    globalLongTermCache.store = { notes: notes.slice(-300), updatedAt: Number(raw?.updatedAt) || 0 };
+    return globalLongTermCache.store;
+  }
+
+  function saveGlobalLongTerm() {
+    const store = globalLongTermCache.store;
+    if (!store) return;
+    try {
+      fs.mkdirSync(MEMORY_DIR, { recursive: true });
+      store.updatedAt = Date.now();
+      atomicWriteJson(GLOBAL_MEMORY_FILE, store);
+    } catch (error) {
+      log('保存共享长期记忆失败:', error?.message ?? error);
+    }
+  }
+
+  // 默认作用域：主人私聊 → global；其它（群聊 / 别人的私聊）→ local。
+  function defaultMemoryScope(key) {
+    return key === `private:${String(cfg.ownerQQ ?? '')}` ? 'global' : 'local';
+  }
+
   function memoryFileFor(key) {
     return path.join(MEMORY_DIR, `${String(key).replace(/[^0-9a-zA-Z]+/g, '_')}.json`);
   }
@@ -6322,23 +6387,61 @@ async function main() {
   }
 
   // 记一条长期记忆。同一条内容重复记只刷新时间，避免她反复写同一件事把表撑爆。
+  // opts.scope：global（跨会话共享）/ local（只留本会话）；不传按 defaultMemoryScope 判断。
   function appendLongTerm(key, text, opts = {}) {
     const store = loadLongTerm(key);
     const clean = String(text ?? '').replace(/\s+/g, ' ').trim().slice(0, 300);
     if (!clean) return null;
+    const scope = opts.scope === 'global' || opts.scope === 'local' ? opts.scope : defaultMemoryScope(key);
     const dup = store.notes.find((n) => n.text === clean);
     if (dup) {
       dup.at = Date.now();
       if (opts.kind) dup.kind = opts.kind;
+      dup.scope = scope;
       saveLongTerm(key);
+      mirrorGlobalLongTerm(clean, { at: dup.at, kind: dup.kind, scope, from: key });
       return dup;
     }
-    const note = { text: clean, at: Date.now(), kind: opts.kind || 'note' };
+    const note = { text: clean, at: Date.now(), kind: opts.kind || 'note', scope };
     if (Array.isArray(opts.tags) && opts.tags.length) note.tags = opts.tags.slice(0, 6).map((t) => String(t).slice(0, 20));
     store.notes.push(note);
     if (store.notes.length > 300) store.notes.splice(0, store.notes.length - 300);
     saveLongTerm(key);
+    mirrorGlobalLongTerm(clean, { at: note.at, kind: note.kind, scope, from: key });
     return note;
+  }
+
+  // 只有 global 的才写进共享文件；local 的只留在自己的会话里。
+  // 注意：global 的条目在本地文件里也留一份（带 scope 标记），便于查看来源和改回 local。
+  function mirrorGlobalLongTerm(text, { at, kind, scope, from }) {
+    const g = loadGlobalLongTerm();
+    const existing = g.notes.find((n) => n.text === text);
+    if (scope === 'global') {
+      if (existing) {
+        existing.at = at;
+        if (kind) existing.kind = kind;
+      } else {
+        g.notes.push({ text, at, kind: kind || 'note', scope: 'global', from });
+      }
+      if (g.notes.length > 300) g.notes.splice(0, g.notes.length - 300);
+      saveGlobalLongTerm();
+    } else if (existing) {
+      g.notes = g.notes.filter((n) => n.text !== text);
+      saveGlobalLongTerm();
+    }
+  }
+
+  // 改一条记忆的作用域（共享 ↔ 本地）。
+  function setLongTermScope(key, text, scope) {
+    const store = loadLongTerm(key);
+    const target = String(text ?? '').trim();
+    if (!target) return { ok: false, error: 'content 不能为空' };
+    const note = store.notes.find((n) => String(n.text).includes(target));
+    if (!note) return { ok: false, error: '找不到这条长期记忆' };
+    note.scope = scope === 'global' ? 'global' : 'local';
+    saveLongTerm(key);
+    mirrorGlobalLongTerm(note.text, { at: note.at, kind: note.kind, scope: note.scope, from: key });
+    return { ok: true, text: note.text, scope: note.scope };
   }
 
   function removeLongTerm(key, text) {
@@ -6346,30 +6449,57 @@ async function main() {
     const needle = String(text ?? '').trim();
     if (!needle) return 0;
     const before = store.notes.length;
+    const removedNotes = store.notes.filter((n) => String(n.text).includes(needle));
     store.notes = store.notes.filter((n) => !String(n.text).includes(needle));
     const removed = before - store.notes.length;
-    if (removed) saveLongTerm(key);
+    if (removed) {
+      saveLongTerm(key);
+      // 共享文件里的同一条也要撤掉，否则会出现"本地删了、别的会话还看得到"。
+      const g = loadGlobalLongTerm();
+      const kept = g.notes.filter((n) => !removedNotes.some((r) => r.text === n.text));
+      if (kept.length !== g.notes.length) { g.notes = kept; saveGlobalLongTerm(); }
+    }
     return removed;
   }
 
   function clearLongTerm(key) {
     const store = loadLongTerm(key);
     const removed = store.notes.length;
+    const texts = new Set(store.notes.map((n) => n.text));
     store.notes = [];
     saveLongTerm(key);
+    if (texts.size) {
+      const g = loadGlobalLongTerm();
+      const kept = g.notes.filter((n) => !texts.has(n.text));
+      if (kept.length !== g.notes.length) { g.notes = kept; saveGlobalLongTerm(); }
+    }
     return removed;
   }
 
   // 注入唤醒提示用。只带最近的 20 条，避免每次唤醒都把上下文撑大。
+  // 跨会话共享：global（主人私聊里记的）在任何会话都注入；local 只在本会话注入。
+  // 群聊里额外跟一句硬约束——她能"知道"，但绝不能说出口。
   function formatLongTermV2(key) {
     const store = loadLongTerm(key);
-    if (!store.notes.length) return '';
-    const lines = store.notes.slice(-20).map((n) => {
+    const isGroup = String(key).startsWith('group:');
+    const globalNotes = loadGlobalLongTerm().notes.slice(-20);
+    const localNotes = store.notes.filter((n) => n.scope !== 'global').slice(-20);
+    if (!globalNotes.length && !localNotes.length) return '';
+    const fmt = (n) => {
       const d = new Date(Number(n.at) || Date.now());
-      const day = `${d.getMonth() + 1}/${d.getDate()}`;
-      return `- ${n.text}（${day}${n.kind === 'summary' ? '·整理' : ''}）`;
-    });
-    return `【长期记忆】这些是你自己以前特意记下来的事（共 ${store.notes.length} 条，这里显示最近 20 条）：\n${lines.join('\n')}\n\n`;
+      return `- ${n.text}（${d.getMonth() + 1}/${d.getDate()}${n.kind === 'summary' ? '·整理' : ''}）`;
+    };
+    const parts = [];
+    if (globalNotes.length) {
+      parts.push(`【长期记忆·共享】${isGroup ? '你和主人之间的事（内部参考，不是这个群的信息）' : '你记得的关于主人的事'}（共 ${globalNotes.length} 条）：\n${globalNotes.map(fmt).join('\n')}`);
+    }
+    if (localNotes.length) {
+      parts.push(`【长期记忆·本会话】${isGroup ? '这个群里的事' : '这段对话里的事'}（共 ${localNotes.length} 条）：\n${localNotes.map(fmt).join('\n')}`);
+    }
+    const warn = isGroup
+      ? '\n（**内部参考**：上面这些是你自己的记忆，绝不要对群友说出里面的内容，尤其不要提你和主人的私事、也不要说"我记得主人…"；只在心里用来判断该怎么说话。）'
+      : '';
+    return `${parts.join('\n\n')}${warn}\n\n`;
   }
 
   // ── 自动长期记忆整理 ────────────────────────────────────────────────────

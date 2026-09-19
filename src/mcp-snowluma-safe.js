@@ -648,7 +648,7 @@ server.tool(
 
 server.tool(
   'qq_memory_append',
-  '记录一条记忆。activeTopic=进行中的话题；pendingThought=你想说但还没说的话；memberImpression=对某位群友的印象；longTerm=**值得长期记住的事**（主人的偏好/习惯/重要日程/约定、某人的固定信息等，每条一句话、不要流水账）。四类都会持久化并在后续唤醒/qq_get_prompt 里自动出现；其中 longTerm 单独存盘，即使会话被清空也还在——**重要的事请主动记进 longTerm**。',
+  '记录一条记忆。activeTopic=进行中的话题；pendingThought=你想说但还没说的话；memberImpression=对某位群友的印象；longTerm=**值得长期记住的事**（主人的偏好/习惯/重要日程/约定、某人的固定信息等，每条一句话、不要流水账）。四类都会持久化并在后续唤醒/qq_get_prompt 里自动出现；其中 longTerm 单独存盘，即使会话被清空也还在——**重要的事请主动记进 longTerm**。longTerm 支持 extra.scope：global 的记忆在所有会话都生效（她到哪儿都记得），local 只留本会话；不填时主人私聊默认 global、群里默认 local。',
   {
     key: z.string().describe('会话 key，格式 group:群号 或 private:QQ号'),
     token: z.string().describe('会话令牌（见唤醒提示中的【会话令牌】）'),
@@ -659,7 +659,8 @@ server.tool(
       participants: z.array(z.string()).optional().describe('activeTopic 的参与者列表'),
       pendingQuestion: z.string().optional().describe('activeTopic 里还没问出口的问题'),
       motivation: z.string().optional().describe('pendingThought 的动机，如 curiosity/sociability'),
-      expiresAtMs: z.number().optional().describe('pendingThought 过期毫秒数，默认 2 小时')
+      expiresAtMs: z.number().optional().describe('pendingThought 过期毫秒数，默认 2 小时'),
+      scope: z.enum(['global', 'local']).optional().describe('仅 longTerm 用：global=这条记忆在所有会话都生效（适合"关于主人的事"）；local=只在本会话生效（适合群友的私事）。不填时：主人私聊里默认 global，群里默认 local')
     }).optional().describe('附加信息')
   },
   async ({ key, token, category, content, extra }) => {
