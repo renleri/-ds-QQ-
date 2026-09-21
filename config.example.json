@@ -257,6 +257,9 @@
       "recentLimit": 100,
       "unreadLimit": 30,
       "contextWindow": 20
+    },
+    "longTerm": {
+      "excludeKeys": []
     }
   },
   "screen": {

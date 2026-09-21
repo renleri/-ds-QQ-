@@ -4279,6 +4279,11 @@ async function main() {
           if (req.headers['x-agent-token'] && !v2ToolEnabled('memory')) { sendJson({ ok: false, error: '工具未启用：qq_memory_append' }, 403); return; }
           const st = getSocialV2State(key);
           if (category === 'longTerm') {
+            // 排除名单：明确告诉她"这里不记"，免得她反复尝试或以为记上了。
+            if (isLongTermExcluded(key)) {
+              sendJson({ ok: false, error: '这个会话被设置为「不写入长期记忆」，请不要在这里记录，也不用重试' }, 403);
+              return;
+            }
             // 长期记忆另存 state\memory\*.json：跟会话状态解耦，会话丢了它还在。
             // scope 决定要不要跨会话共享：主人私聊默认 global，群里默认 local。
             const note = appendLongTerm(key, content, {
@@ -4444,6 +4449,7 @@ async function main() {
           if (!key) { sendJson({ ok: false, error: 'key 不能为空' }, 400); return; }
           if (currentMode !== 'reserved2') { sendJson({ ok: false, error: '该接口仅 reserved2 模式可用' }, 403); return; }
           if (!isSessionAllowedInCurrentMode(key)) { sendJson({ ok: false, error: '目标不在当前模式允许范围内' }, 403); return; }
+          if (isLongTermExcluded(key)) { sendJson({ ok: false, error: '该会话在长期记忆排除名单里（socialV2.longTerm.excludeKeys），不会整理也不会写入' }, 403); return; }
           const before = loadLongTerm(key).notes.length;
           maybeSummarizeLongTerm(key, { force: true });
           sendJson({ ok: true, key, before, hint: '已安排一次静默整理回合；几秒后看 state\\memory\\*.json 的条数' });
@@ -6351,6 +6357,18 @@ async function main() {
     }
   }
 
+  // 长期记忆排除名单（2026-09-21 主人要求：group:1124187961 的内容不要进长期记忆）。
+  // fail-closed：工具写入、自动整理、作用域调整三条路都拦在这里；
+  // 被排除的会话既不写自己的记忆文件，也不会往共享池里镜像。
+  function longTermExcludeList() {
+    const list = cfg.socialV2?.longTerm?.excludeKeys;
+    return Array.isArray(list) ? list.map((x) => String(x).trim()).filter(Boolean) : [];
+  }
+
+  function isLongTermExcluded(key) {
+    return longTermExcludeList().includes(String(key));
+  }
+
   // 默认作用域：主人私聊 → global；其它（群聊 / 别人的私聊）→ local。
   function defaultMemoryScope(key) {
     return key === `private:${String(cfg.ownerQQ ?? '')}` ? 'global' : 'local';
@@ -6390,6 +6408,11 @@ async function main() {
   // 记一条长期记忆。同一条内容重复记只刷新时间，避免她反复写同一件事把表撑爆。
   // opts.scope：global（跨会话共享）/ local（只留本会话）；不传按 defaultMemoryScope 判断。
   function appendLongTerm(key, text, opts = {}) {
+    // 排除名单里的会话：一个字都不留（工具写入和自动整理都会走到这里）。
+    if (isLongTermExcluded(key)) {
+      log(`[reserved2] 该会话在长期记忆排除名单里，拒绝写入：${key}`);
+      return null;
+    }
     const store = loadLongTerm(key);
     const clean = String(text ?? '').replace(/\s+/g, ' ').trim().slice(0, 300);
     if (!clean) return null;
@@ -6434,6 +6457,7 @@ async function main() {
 
   // 改一条记忆的作用域（共享 ↔ 本地）。
   function setLongTermScope(key, text, scope) {
+    if (isLongTermExcluded(key)) return { ok: false, error: '该会话在长期记忆排除名单里' };
     const store = loadLongTerm(key);
     const target = String(text ?? '').trim();
     if (!target) return { ok: false, error: 'content 不能为空' };
@@ -6515,6 +6539,8 @@ async function main() {
   function maybeSummarizeLongTerm(key, opts = {}) {
     if (cfg.socialV2?.enabled === false) return;
     if (currentMode !== 'reserved2' || socialV2.paused) return;
+    // 排除名单里的会话不做整理（省掉这次模型调用，也避免她把内容提炼出来）。
+    if (isLongTermExcluded(key)) return;
     try {
       const store = loadLongTerm(key);
       const st = getSocialV2State(key);
