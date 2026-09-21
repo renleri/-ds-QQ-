@@ -2512,7 +2512,7 @@ async function main() {
             const stV2 = getSocialV2State(key);
             tokenLine = `【会话令牌】${stV2.agentToken}（调用二代状态/发送工具时请在参数中带上此令牌）\n\n`;
           }
-          const promptText = `${roleLine}${tokenLine}【后台控制端提醒】（来自控制台/管理端，不是群友消息）\n${message}\n\n这是后台给你的引导或提醒，请据此调整你的行为。绝对不要复述、转发或原样发送这条后台提醒，也不要发送其中的会话令牌；它只用于你内部调整行为。${isV2 ? '当前是二代仿真模式：你的文本输出不会自动发送到 QQ；如果需要在群里发言，请使用发送工具（qq_send_message / qq_reply）。如果不需要发言，可以 qq_mark_read 或 qq_set_wake_config 收尾。' : '如果不需要在群里发言，请不要输出会发到 QQ 的内容。'}`;
+          const promptText = `${qqIdentityLine()}${roleLine}${tokenLine}【后台控制端提醒】（来自控制台/管理端，不是群友消息）\n${message}\n\n这是后台给你的引导或提醒，请据此调整你的行为。绝对不要复述、转发或原样发送这条后台提醒，也不要发送其中的会话令牌；它只用于你内部调整行为。${isV2 ? '当前是二代仿真模式：你的文本输出不会自动发送到 QQ；如果需要在群里发言，请使用发送工具（qq_send_message / qq_reply）。如果不需要发言，可以 qq_mark_read 或 qq_set_wake_config 收尾。' : '如果不需要在群里发言，请不要输出会发到 QQ 的内容。'}`;
           let sessionId = null;
           let popSilent = null;
           try {
@@ -5825,6 +5825,7 @@ async function main() {
     return Math.floor(min + Math.random() * (max - min + 1));
   };
   let selfNickname = 'deepseek'; // 机器人昵称（启动时从网关获取，识别"被提到"用）
+  let selfNicknameRaw = '';      // 同上，但保留大小写——用于告诉她"你在 QQ 上叫什么"
   const SILENT_TURN_TIMEOUT_MS = 300000; // 摘要静默名额 5 分钟未消费则作废，避免吞掉后续正常回复
   const social = {
     states: new Map(),             // key -> { phase: 'idle'|'active'|'probing'|'exiting', lastCheckAt, nextCheckAt, lastActiveMessageAt, activeEnteredAt, activeDeadlineAt, activeExitAt, probeDeadline }
@@ -7836,6 +7837,17 @@ async function main() {
     return `【你记得的最近对话】下面这些是你们之前聊过的记录（**不是刚收到的新消息**，不要当成未读去回复）：\n${lines.join('\n')}\n\n`;
   }
 
+  // 「你在 QQ 上是谁」——由网关返回的**真实账号昵称**决定，跟角色卡无关。
+  // 2026-09-21 主人要求「确认她的自我认知名字是希罗酱」。此前她只从角色卡认识自己，
+  // 换个角色卡就换个名字（实测：切到「小鲸鱼」卡后她答"我叫小鲸鱼"）。
+  // 这一行让 QQ 身份始终稳定：角色卡决定怎么说话，这一行决定她是谁。
+  function qqIdentityLine() {
+    const nick = String(selfNicknameRaw || '').trim();
+    if (!nick) return '';
+    const uin = String(cfg.snowluma?.botQQ ?? '').trim();
+    return `【你的 QQ 身份】你在 QQ 上用的昵称是「${nick}」${uin ? `（账号 ${uin}）` : ''}——**这就是你自己**：别人叫「${nick}」，或者叫「${nick.replace(/酱$/, '')}」，都是在叫你，要应。\n（角色卡决定你怎么说话；这一行决定你叫什么。两者不冲突，也不用向任何人解释。）\n\n`;
+  }
+
   function buildWakePromptV2(key, reason) {
     const roleState = readRoleState();
     const roleLine = roleState.role ? `【当前角色】${roleState.role}（完整角色卡请调用 qq_get_prompt 查看）\n\n` : '';
@@ -7878,7 +7890,7 @@ async function main() {
     if (wcTr.anyMessage) wcTriggers.push('任意消息');
     if (Number(wcTr.probability) > 0) wcTriggers.push(`概率${wcTr.probability}`);
     const wakeLine = `【当前唤醒】${wcMode}，${wcTime}${wcTriggers.length ? `；触发：${wcTriggers.join('/')}` : ''}\n\n`;
-    const base = roleLine + tokenLine + antiAiLine + proactiveLine + stickerLine + preSleepLine + statusLine + wakeLine + longTermLine + memoryLine + participationLine;
+    const base = qqIdentityLine() + roleLine + tokenLine + antiAiLine + proactiveLine + stickerLine + preSleepLine + statusLine + wakeLine + longTermLine + memoryLine + participationLine;
     if (reason === 'bootstrap') {
       // 新会话（首次接入，或桥接重启后重建）：先把最近的对话回灌给她，
       // 否则她会「像第一次见面」——这正是主人 2026-09-19 反馈的问题。
@@ -9019,6 +9031,10 @@ async function main() {
                 silentQueue.shift();
                 if (silentQueue.length > 0) social.silentTurns.set(frame.sessionId, silentQueue);
                 else social.silentTurns.delete(frame.sessionId);
+                // 静默回合的文本也要留痕：以前直接丢掉，排查"她到底说了什么"时两眼一抹黑
+                // （长期记忆整理走的就是这条路，看不到输出就没法判断她提炼得对不对）。
+                const silentText = String(ended?.text ?? '').trim().replace(/\s+/g, ' ').slice(0, 200);
+                if (silentText) log(`[reserved2] 静默回合输出 (${key})：${silentText}`);
                 // 长期记忆整理回合：她把提炼结果直接写在回复文本里，桥接在这里收录。
                 // 为什么不让她调工具：MCP 的工具描述是 DSH 启动时加载的，
                 // 新增的 longTerm 类别要等下次重启 DSH 才认识；走文本这条路立刻可用。
@@ -9376,6 +9392,7 @@ async function main() {
     const login = await bot.getLoginInfo();
     if (login?.nickname) {
       selfNickname = String(login.nickname).toLowerCase();
+      selfNicknameRaw = String(login.nickname);
       log(`机器人昵称: ${login.nickname}`);
     }
   } catch {}
