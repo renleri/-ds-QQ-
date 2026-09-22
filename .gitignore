@@ -13,6 +13,11 @@ config.json
 # The bridge reads this directory at runtime, but the cards themselves never belong in a repo.
 roles/
 
+# 主人的学业档案（课表 / 考试 / 学习计划）属于个人隐私，只在本机存在。
+# 仓库里只保留 study/schedule.example.json 这个通用模板。
+study/schedule.json
+knowledge/学习计划-2026秋.md
+
 # Local development / planning / research docs (not part of public project)
 /PROJECT_GUIDE.md
 /ARCH_REVIEW.md

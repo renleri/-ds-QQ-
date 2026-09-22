@@ -2512,7 +2512,7 @@ async function main() {
             const stV2 = getSocialV2State(key);
             tokenLine = `【会话令牌】${stV2.agentToken}（调用二代状态/发送工具时请在参数中带上此令牌）\n\n`;
           }
-          const promptText = `${qqIdentityLine()}${roleLine}${tokenLine}【后台控制端提醒】（来自控制台/管理端，不是群友消息）\n${message}\n\n这是后台给你的引导或提醒，请据此调整你的行为。绝对不要复述、转发或原样发送这条后台提醒，也不要发送其中的会话令牌；它只用于你内部调整行为。${isV2 ? '当前是二代仿真模式：你的文本输出不会自动发送到 QQ；如果需要在群里发言，请使用发送工具（qq_send_message / qq_reply）。如果不需要发言，可以 qq_mark_read 或 qq_set_wake_config 收尾。' : '如果不需要在群里发言，请不要输出会发到 QQ 的内容。'}`;
+          const promptText = `${qqIdentityLine()}${roleLine}${tokenLine}${buildStudyPlanLine(key)}【后台控制端提醒】（来自控制台/管理端，不是群友消息）\n${message}\n\n这是后台给你的引导或提醒，请据此调整你的行为。绝对不要复述、转发或原样发送这条后台提醒，也不要发送其中的会话令牌；它只用于你内部调整行为。${isV2 ? '当前是二代仿真模式：你的文本输出不会自动发送到 QQ；如果需要在群里发言，请使用发送工具（qq_send_message / qq_reply）。如果不需要发言，可以 qq_mark_read 或 qq_set_wake_config 收尾。' : '如果不需要在群里发言，请不要输出会发到 QQ 的内容。'}`;
           let sessionId = null;
           let popSilent = null;
           try {
@@ -7874,6 +7874,94 @@ async function main() {
     return `【你的 QQ 身份】你在 QQ 上用的昵称是「${nick}」${uin ? `（账号 ${uin}）` : ''}——**这就是你自己**：别人叫「${nick}」，或者叫「${nick.replace(/酱$/, '')}」，都是在叫你，要应。\n（角色卡决定你怎么说话；这一行决定你叫什么。两者不冲突，也不用向任何人解释。）\n\n`;
   }
 
+  // ── 主人的学习计划（精确到天的每日提示）────────────────────────────────
+  // 2026-09-21 加：主人要求「让她记住学习计划，精确到天」。
+  // 做法不是塞一份静态文档（她读不完、也不会每天重读），而是**每天现算**：
+  //   study/schedule.json 存一周课表 + 关键日期，这里按今天算出「今天的课 / 今天的重点 /
+  //   每天保底 / 最近的关键节点还剩几天」，注入唤醒提示。
+  // 只在主人私聊里注入 —— 他的课表和考试安排不该出现在群里，也不该被群友问出来。
+  const STUDY_FILE = path.join(ROOT, 'study', 'schedule.json');
+  const studyCache = { mtimeMs: 0, data: null };
+
+  function loadStudyPlan() {
+    try {
+      const stat = fs.statSync(STUDY_FILE);
+      if (studyCache.data && studyCache.mtimeMs === stat.mtimeMs) return studyCache.data;
+      const data = JSON.parse(fs.readFileSync(STUDY_FILE, 'utf8'));
+      studyCache.data = data;
+      studyCache.mtimeMs = stat.mtimeMs;
+      return data;
+    } catch {
+      return null;
+    }
+  }
+
+  // 本地日期（不能用 toISOString：那是 UTC，晚上会串到前一天）
+  function localDateKey(d = new Date()) {
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  }
+
+  function daysBetween(fromKey, toKey) {
+    const a = Date.parse(`${fromKey}T00:00:00`);
+    const b = Date.parse(`${toKey}T00:00:00`);
+    if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
+    return Math.round((b - a) / 86400000);
+  }
+
+  function buildStudyPlanLine(key) {
+    if (key !== `private:${String(cfg.ownerQQ ?? '')}`) return '';
+    const plan = loadStudyPlan();
+    if (!plan || plan.ownerOnly === false) return '';
+    const now = new Date();
+    const todayKey = localDateKey(now);
+    const dow = now.getDay(); // 0=周日
+    const weekNames = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+
+    let weekNo = null;
+    if (plan.termStart) {
+      const diff = daysBetween(String(plan.termStart), todayKey);
+      if (diff != null && diff >= 0) weekNo = Math.floor(diff / 7) + 1;
+    }
+
+    const parts = [`【今天】${todayKey} ${weekNames[dow]}${weekNo ? ` · 第 ${weekNo} 周` : ''}`];
+
+    // 先看今天是不是在某个特殊区间里（假期 / 调休补课）
+    const inSpecial = (plan.special || []).find((s) => {
+      const end = s.end || s.date;
+      return todayKey >= String(s.date) && todayKey <= String(end);
+    });
+    const onHoliday = Boolean(inSpecial?.holiday);
+
+    const day = plan.weekly?.[String(dow)];
+    // 课时表可能只在前几周有效（比如军理只有几周）：过了 classesUntil 就当没课。
+    const classesExpired = Boolean(day?.classesUntil && todayKey > String(day.classesUntil));
+    if (onHoliday) {
+      parts.push('· 今天放假定不上课，把时间给计划里的假期任务');
+    } else if (day?.classes?.length && !classesExpired) {
+      parts.push(`· 今天的课：${day.classes.join(' / ')}`);
+    } else {
+      parts.push('· 今天没有课');
+    }
+    if (!onHoliday && day?.focus && !classesExpired) parts.push(`· 今天的重点：${day.focus}`);
+    if (Array.isArray(plan.daily) && plan.daily.length) parts.push(`· 每天保底：${plan.daily.join(' · ')}`);
+
+    if (inSpecial) {
+      parts.push(`· ⚑ 今天在【${inSpecial.label}】：${inSpecial.todo || ''}`);
+    } else {
+      const upcoming = [...(plan.special || []), ...(plan.milestones || [])]
+        .map((s) => ({ ...s, d: daysBetween(todayKey, String(s.date)) }))
+        .filter((s) => s.d != null && s.d >= 0)
+        .sort((a, b) => a.d - b.d)[0];
+      if (upcoming) {
+        const when = upcoming.d === 0 ? '就是今天' : `还有 ${upcoming.d} 天`;
+        parts.push(`· 最近节点：${upcoming.label}（${when}）${upcoming.todo ? `—— ${upcoming.todo}` : ''}`);
+      }
+    }
+    parts.push('（这是主人的学业安排，只有你能看到：**不要主动提起、不要在群里说**，他问起时再答。）');
+    return `${parts.join('\n')}\n\n`;
+  }
+
   function buildWakePromptV2(key, reason) {
     const roleState = readRoleState();
     const roleLine = roleState.role ? `【当前角色】${roleState.role}（完整角色卡请调用 qq_get_prompt 查看）\n\n` : '';
@@ -7916,7 +8004,7 @@ async function main() {
     if (wcTr.anyMessage) wcTriggers.push('任意消息');
     if (Number(wcTr.probability) > 0) wcTriggers.push(`概率${wcTr.probability}`);
     const wakeLine = `【当前唤醒】${wcMode}，${wcTime}${wcTriggers.length ? `；触发：${wcTriggers.join('/')}` : ''}\n\n`;
-    const base = qqIdentityLine() + roleLine + tokenLine + antiAiLine + proactiveLine + stickerLine + preSleepLine + statusLine + wakeLine + longTermLine + memoryLine + participationLine;
+    const base = qqIdentityLine() + roleLine + tokenLine + buildStudyPlanLine(key) + antiAiLine + proactiveLine + stickerLine + preSleepLine + statusLine + wakeLine + longTermLine + memoryLine + participationLine;
     if (reason === 'bootstrap') {
       // 新会话（首次接入，或桥接重启后重建）：先把最近的对话回灌给她，
       // 否则她会「像第一次见面」——这正是主人 2026-09-19 反馈的问题。
