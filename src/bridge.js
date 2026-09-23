@@ -4458,6 +4458,37 @@ async function main() {
           sendJson({ ok: true, key, before, hint: '已安排一次静默整理回合；几秒后看 state\\memory\\*.json 的条数' });
           return;
         }
+        // 手动触发一条学习提醒（自检 / 主人想立刻被提醒时用）
+        if (req.method === 'POST' && url.pathname === '/api/study/reminder') {
+          const body = await readBody();
+          const id = String(body.id ?? '').trim();
+          const key = `private:${String(cfg.ownerQQ ?? '')}`;
+          if (!isSessionAllowedInCurrentMode(key)) { sendJson({ ok: false, error: '主人私聊不在当前模式的允许范围内' }, 403); return; }
+          const plan = loadStudyPlan();
+          const rule = (plan?.reminders ?? []).find((r) => r.id === id);
+          if (!rule) { sendJson({ ok: false, error: '找不到这条提醒', ids: (plan?.reminders ?? []).map((r) => r.id) }, 404); return; }
+          void sendWakePromptV2(key, `study:${id}`).catch((error) => log('学习提醒唤醒异常:', error?.message ?? error));
+          log(`[reserved2] 手动触发学习提醒：${id}`);
+          sendJson({ ok: true, id, text: rule.text });
+          return;
+        }
+        // 看今天的提醒状态（哪几条今天已经响过）
+        if (req.method === 'GET' && url.pathname === '/api/study/reminders') {
+          const plan = loadStudyPlan();
+          const state = loadReminderState();
+          const now = new Date();
+          const todayKey = localDateKey(now);
+          sendJson({
+            ok: true,
+            today: todayKey,
+            reminders: (plan?.reminders ?? []).map((r) => ({
+              id: r.id, time: r.time, enabled: r.enabled !== false, when: r.when || '(每天)',
+              firedToday: state.lastFired[r.id] === todayKey,
+              due: reminderDue(r, plan, now, todayKey, loadReminderState())
+            }))
+          });
+          return;
+        }
         // 长期记忆的原始内容（管理端查看/排障用）
         if (req.method === 'GET' && url.pathname === '/api/socialV2/long-term') {
           const key = String(url.searchParams.get('key') ?? '').trim();
@@ -6708,6 +6739,7 @@ async function main() {
   snapshotStateFiles();
   loadSessionsMap();
   loadSocialV2State();
+  startStudyReminders();
 
   function isSocialEnabled() {
     return currentMode === 'reserved' && cfg.social?.enabled !== false;
@@ -7919,6 +7951,96 @@ async function main() {
     return Math.round((b - a) / 86400000);
   }
 
+  // ── 学习提醒（定时督促）────────────────────────────────────────────────
+  // 2026-09-22 主人说「可以适当督促」。规则写在 study/schedule.json 的 reminders 里：
+  //   到点 → 用一次**正常唤醒**（不是静默回合），把「该提醒什么」交给她，让她用自己的话发出去。
+  // 为什么不直接由桥接发消息：那样语气是机器的；让她说，才像人。
+  // 节制设计：一分钟最多响一条、同一条一天只响一次、迟到超过 30 分钟不补（避免开机后补一堆）。
+  //
+  // ⚠️ 这里有个坑值得记下来：本函数在 main() 开头就被调用（loadSocialV2State 之后），
+  // 而这段代码在文件里位于**后面**。如果这里写成 `const STUDY_REMINDER_STATE = ...` /
+  // `let studyReminderTimer`，就会踩 TDZ —— 调用时它还没初始化，
+  // 报 "Cannot access ... before initialization"，桥接启动即崩、被守护循环 5 秒重启一次
+  // （2026-09-22 实测踩到）。所以：路径在函数里现算，定时器句柄用 var（var 会被提升并初始化）。
+  var studyReminderTimer = null;
+
+  function studyReminderStateFile() {
+    return path.join(STATE_DIR, 'study-reminders.json');
+  }
+
+  function loadReminderState() {
+    const raw = readJsonSafe(studyReminderStateFile(), null);
+    if (raw && raw.lastFired && typeof raw.lastFired === 'object') return { lastFired: raw.lastFired };
+    return { lastFired: {} };
+  }
+
+  function saveReminderState(state) {
+    try { atomicWriteJson(studyReminderStateFile(), state); } catch { }
+  }
+
+  function studyDayContext(plan, now, todayKey) {
+    const day = plan.weekly?.[String(now.getDay())];
+    const expired = Boolean(day?.classesUntil && todayKey > String(day.classesUntil));
+    const hasClasses = Boolean(day?.classes?.length) && !expired;
+    const inSpecial = (plan.special || []).find((s) => todayKey >= String(s.date) && todayKey <= String(s.end || s.date));
+    const isHoliday = Boolean(inSpecial?.holiday);
+    // 假期最后一天？（明天不在假期里了）
+    let holidayLastDay = false;
+    if (isHoliday) {
+      const tomorrow = localDateKey(new Date(now.getTime() + 86400000));
+      holidayLastDay = !(plan.special || []).some((s) => tomorrow >= String(s.date) && tomorrow <= String(s.end || s.date));
+    }
+    return { hasClasses, isHoliday, holidayLastDay };
+  }
+
+  function reminderDue(rule, plan, now, todayKey, state) {
+    if (!rule || rule.enabled === false || !rule.id) return false;
+    if (!/^\d{1,2}:\d{2}$/.test(String(rule.time ?? ''))) return false;
+    const days = Array.isArray(rule.days) && rule.days.length ? rule.days.map(Number) : [0, 1, 2, 3, 4, 5, 6];
+    if (!days.includes(now.getDay())) return false;
+    const [hh, mm] = String(rule.time).split(':').map(Number);
+    const target = new Date(now);
+    target.setHours(hh, mm, 0, 0);
+    if (now < target) return false;
+    if (now.getTime() - target.getTime() > 30 * 60 * 1000) return false;
+    if (state.lastFired[rule.id] === todayKey) return false;
+    const ctx = studyDayContext(plan, now, todayKey);
+    if (rule.when === 'hasClasses' && !ctx.hasClasses) return false;
+    if (rule.when === 'noClasses' && ctx.hasClasses) return false;
+    if (rule.when === 'onHoliday' && !ctx.isHoliday) return false;
+    if (rule.when === 'schoolDay' && ctx.isHoliday) return false;
+    if (rule.when === 'holidayLastDay' && !ctx.holidayLastDay) return false;
+    return true;
+  }
+
+  function startStudyReminders() {
+    const ownerKey = `private:${String(cfg.ownerQQ ?? '')}`;
+    if (studyReminderTimer) clearInterval(studyReminderTimer);
+    studyReminderTimer = setInterval(() => {
+      try {
+        const plan = loadStudyPlan();
+        if (!plan || !Array.isArray(plan.reminders) || !plan.reminders.length) return;
+        if (cfg.socialV2?.enabled === false) return;
+        if (currentMode !== 'reserved2' || socialV2.paused) return;
+        if (!isSessionAllowedInCurrentMode(ownerKey)) return;
+        const now = new Date();
+        const todayKey = localDateKey(now);
+        const state = loadReminderState();
+        for (const rule of plan.reminders) {
+          if (!reminderDue(rule, plan, now, todayKey, state)) continue;
+          state.lastFired[rule.id] = todayKey;
+          saveReminderState(state);
+          log(`[reserved2] 学习提醒触发：${rule.id}（设定 ${rule.time}）`);
+          void sendWakePromptV2(ownerKey, `study:${rule.id}`).catch((error) => log('学习提醒唤醒异常:', error?.message ?? error));
+          break; // 一分钟内只响一条
+        }
+      } catch (error) {
+        log('学习提醒检查失败:', error?.message ?? error);
+      }
+    }, 60000);
+    studyReminderTimer.unref?.();
+  }
+
   function buildStudyPlanLine(key) {
     if (key !== `private:${String(cfg.ownerQQ ?? '')}`) return '';
     const plan = loadStudyPlan();
@@ -8015,8 +8137,15 @@ async function main() {
     if (Number(wcTr.probability) > 0) wcTriggers.push(`概率${wcTr.probability}`);
     const wakeLine = `【当前唤醒】${wcMode}，${wcTime}${wcTriggers.length ? `；触发：${wcTriggers.join('/')}` : ''}\n\n`;
     const base = qqIdentityLine() + roleLine + tokenLine + buildStudyPlanLine(key) + antiAiLine + proactiveLine + stickerLine + preSleepLine + statusLine + wakeLine + longTermLine + memoryLine + participationLine;
-    if (reason === 'bootstrap') {
-      // 新会话（首次接入，或桥接重启后重建）：先把最近的对话回灌给她，
+    if (String(reason ?? '').startsWith('study:')) {
+      // 学习提醒：把「该提醒什么」交给她，让她用自己的话发。base 里已经带了今天的课表与计划。
+      const ruleId = String(reason).slice('study:'.length);
+      const plan = loadStudyPlan();
+      const rule = (plan?.reminders ?? []).find((r) => r.id === ruleId);
+      const text = rule?.text || '按学习计划提醒主人今天该做的事。';
+      return `${base}【学习提醒】现在该提醒主人一件事了。\n要提醒的：${text}\n做法：用你自己的语气发 1~2 条短消息（**别超过 2 条**，别说教、别像客服、别写成清单），发完用 qq_wait_for_messages 等他回；他要是没回或说在忙，就安静收尾，不要追着催。`;
+    }
+    if (reason === 'bootstrap') {      // 新会话（首次接入，或桥接重启后重建）：先把最近的对话回灌给她，
       // 否则她会「像第一次见面」——这正是主人 2026-09-19 反馈的问题。
       const recap = formatRecapV2(st);
       return `${base}${recap}【引导唤醒】你已接入 QQ 会话 ${key}。\n当前是二代仿真模式：你的文本输出不会自动发送到 QQ，所有发言必须通过工具完成。\n请先调用 qq_get_prompt 查看你的角色、推荐值、可用工具和当前状态，然后用 qq_set_wake_config 设置你希望如何被唤醒。`;
