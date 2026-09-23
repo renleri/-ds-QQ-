@@ -246,7 +246,8 @@
         "recentReplyDampenMs": 240000,
         "longSilenceMs": 5400000,
         "longSilenceProbability": 1
-      }
+      },
+      "excludeKeys": []
     },
     "feedback": {
       "maxLength": 500,

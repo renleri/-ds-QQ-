@@ -3054,7 +3054,10 @@ async function main() {
             }
           }
           // 沉睡前强制观察窗口：除非对方明确结束、或已经安静/等待足够时间，否则不允许 AI 聊两句就设置潜水。
-          if (isSleepingConfigV2(next) && preSleepWaitBlockedV2(st)) {
+          // 注意：**管理端/控制台**（没有 x-agent-token）不受这条限制 —— 它是用来管住她的，
+          // 不该把主人自己在控制台上改配置也一起挡住（实测踩过：想给她降活跃度却改不动）。
+          const isAdminCall = !req.headers['x-agent-token'];
+          if (!isAdminCall && isSleepingConfigV2(next) && preSleepWaitBlockedV2(st)) {
             const preSleepMs = Math.max(0, Number(cfg.socialV2?.wake?.preSleepWaitMs) || 300000);
             const remaining = Math.max(0, preSleepMs - ((st.lastIncomingAt || 0) ? Date.now() - st.lastIncomingAt : 0));
             const remainMin = Math.ceil(remaining / 60000);
@@ -6369,6 +6372,13 @@ async function main() {
     return longTermExcludeList().includes(String(key));
   }
 
+  // 主动机会排除名单：列在这里的会话，她不会主动找话题（只回应被 @ / 被叫 / 被提问）。
+  // 2026-09-22 主人要求「降低她在 1124187961 的活跃度」。
+  function isProactiveExcluded(key) {
+    const list = cfg.socialV2?.proactive?.excludeKeys;
+    return Array.isArray(list) && list.map((x) => String(x).trim()).includes(String(key));
+  }
+
   // 默认作用域：主人私聊 → global；其它（群聊 / 别人的私聊）→ local。
   function defaultMemoryScope(key) {
     return key === `private:${String(cfg.ownerQQ ?? '')}` ? 'global' : 'local';
@@ -8378,6 +8388,7 @@ async function main() {
     if (cfg.socialV2?.proactive?.enabled === false) return;
     if (socialV2.paused || currentMode !== 'reserved2') return;
     if (!isSessionAllowedInCurrentMode(key)) return;
+    if (isProactiveExcluded(key)) return;
     const st = getSocialV2State(key);
     if (st.proactiveTimer) return;
     const p = proactiveParams(key);
