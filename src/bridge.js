@@ -82,7 +82,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { spawn } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { SnowLumaWebSocketClient, text } from '@snowluma/sdk';
 import { NodeApiClient, unwrap, createTurnCollector } from './dsh-client.js';
@@ -4469,6 +4469,38 @@ async function main() {
           sendJson({ ok: true, key, before, hint: '已安排一次静默整理回合；几秒后看 state\\memory\\*.json 的条数' });
           return;
         }
+        // 截屏门禁自检：现在这道门会怎么判？（可传 ?title= 做干跑，不改变去重状态）
+        if (req.method === 'GET' && url.pathname === '/api/screen/gate') {
+          const dryTitle = String(url.searchParams.get('title') ?? '').trim();
+          const qh = cfg.socialV2?.proactive?.quietHours ?? { start: '00:00', end: '05:00' };
+          const quiet = inQuietHours(new Date(), qh);
+          if (dryTitle) {
+            const { titleKey, appKey } = screenTitleKeys(dryTitle);
+            sendJson({
+              ok: true, dryRun: true, input: dryTitle, titleKey, appKey,
+              denied: screenDeniedByTitle(dryTitle),
+              deniedBy: screenDenyList().filter((kw) => kw && dryTitle.toLowerCase().includes(String(kw).toLowerCase())),
+              quietNow: quiet, quietHours: qh
+            });
+            return;
+          }
+          const title = probeForegroundWindow();
+          const { titleKey, appKey } = screenTitleKeys(title);
+          sendJson({
+            ok: true,
+            foreground: title,
+            titleKey, appKey,
+            denied: screenDeniedByTitle(title),
+            deniedBy: screenDenyList().filter((kw) => kw && title.toLowerCase().includes(String(kw).toLowerCase())),
+            lastSeen: screenWindowSeen,
+            dedupWindowMs: Number(cfg.screen?.dedupWindowMs) || 600000,
+            dedupAppMs: Number(cfg.screen?.dedupAppMs) || 1800000,
+            quietNow: quiet,
+            quietHours: qh,
+            denyList: screenDenyList()
+          });
+          return;
+        }
         // 手动触发一条学习提醒（自检 / 主人想立刻被提醒时用）
         if (req.method === 'POST' && url.pathname === '/api/study/reminder') {
           const body = await readBody();
@@ -8071,6 +8103,103 @@ async function main() {
     return '【工具边界】要给主人私下说事（他交代的提醒、私事），直接用 qq_send_private_message（userId 填主人的 QQ 号）——**任何会话都允许给主人发私聊**，不会再被令牌挡住。\n反过来：**群与群之间、群与别人的私聊不互通**，一个群里的事不要搬到别处去说。\n\n';
   }
 
+  // ── 截屏门禁：窗口黑名单 / 同窗口时间窗去重 / 夜间不打扰 ──────────────────
+  // 2026-09-25 主人拍板的三条（都来自她自己的反馈）：
+  //   ①同一窗口（而不是同一张图）在时间窗内只唤醒一次 —— 以前按图片 hash 去重，
+  //     时钟/进度条像素一变 hash 就不同，于是同一次活动会话每 10 分钟被唤醒一次；
+  //   ②窗口标题命中黑名单（设置页/控制台/聊天窗口…）不唤醒、也不截图；
+  //   ③00:00-05:00 不触发主动唤醒（那时截图多半是全黑或锁屏）。
+  const DEFAULT_SCREEN_DENY = [
+    // 系统敏感页
+    '设置', '账户', '密码', '登录', '验证', '支付', '银行', '钱包', '隐私', '身份证',
+    // 内部/控制台
+    'DeepSeek Harness', 'SnowLuma', '127.0.0.1', 'localhost', '控制台', '桥接',
+    // 聊天/隐私
+    'QQ', '微信', 'TIM', '钉钉', '飞书', '会话', '聊天记录', '群聊',
+    // 密码管理器
+    '1Password', 'Bitwarden', 'KeePass',
+  ];
+
+  function screenDenyList() {
+    const list = cfg.screen?.denyWindowTitles;
+    return Array.isArray(list) && list.length ? list.map(String) : DEFAULT_SCREEN_DENY;
+  }
+
+  function screenDeniedByTitle(title) {
+    const t = String(title ?? '').trim().toLowerCase();
+    if (!t) return false;
+    return screenDenyList().some((kw) => kw && t.includes(String(kw).toLowerCase()));
+  }
+
+  // 只读前台窗口标题（不截图）：调 capture-screen.ps1 -Probe。
+  // 为什么单独探一次而不是等截图回来：只有先知道窗口，才能在**唤醒之前**决定要不要吵她。
+  function probeForegroundWindow() {
+    try {
+      const script = path.join(ROOT, 'scripts', 'capture-screen.ps1');
+      if (!fs.existsSync(script)) return '';
+      const out = execFileSync('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script, '-Probe'], {
+        encoding: 'utf8', timeout: 8000, windowsHide: true
+      });
+      const m = /TITLE\s+([A-Za-z0-9+/=]*)/.exec(String(out ?? ''));
+      if (!m || !m[1]) return '';
+      return Buffer.from(m[1], 'base64').toString('utf8');
+    } catch {
+      return '';
+    }
+  }
+
+  // 同一个窗口在 dedupWindowMs 内不重复唤醒；同一**应用**在 dedupAppMs 内也不重复。
+  // 为什么加"应用"这一层（2026-09-25 实测）：浏览器换个标签页标题就变（
+  // "bang卡面 - 搜索 和另外 3 个页面 - 个人 - Microsoft Edge"），只按标题去重挡不住
+  // "同一次浏览活动被反复唤醒" —— 这正是她反馈里说的那个毛病。
+  const screenWindowSeen = { titleKey: '', appKey: '', titleAt: 0, appAt: 0 };
+
+  // 归一化：去掉"和另外 N 个页面"这类易变后缀，并取出应用名（标题最后一段）。
+  function screenTitleKeys(title) {
+    const raw = String(title ?? '').replace(/\s+/g, ' ').trim();
+    if (!raw) return { titleKey: '', appKey: '' };
+    const titleKey = raw
+      .replace(/\s*和另外\s*\d+\s*个页面/gi, '')
+      .replace(/\s*and \d+ more pages?/gi, '')
+      .replace(/\s*[-–—]\s*$/, '')
+      .trim();
+    const parts = titleKey.split(/\s+[-–—]\s+/);
+    const appKey = parts.length > 1 ? parts[parts.length - 1].trim() : '';
+    return { titleKey, appKey };
+  }
+
+  function screenWindowDuplicate(title, now = Date.now()) {
+    const winMs = Math.max(0, Number(cfg.screen?.dedupWindowMs) || 10 * 60 * 1000);
+    const appMs = Math.max(0, Number(cfg.screen?.dedupAppMs) || 30 * 60 * 1000);
+    const { titleKey, appKey } = screenTitleKeys(title);
+    let dup = false;
+    let reason = '';
+    if (titleKey && titleKey === screenWindowSeen.titleKey && now - screenWindowSeen.titleAt < winMs) {
+      dup = true; reason = `同一画面（${Math.round(winMs / 60000)} 分钟内）`;
+    } else if (appKey && appKey === screenWindowSeen.appKey && now - screenWindowSeen.appAt < appMs) {
+      dup = true; reason = `同一应用（${Math.round(appMs / 60000)} 分钟内）`;
+    }
+    if (titleKey) { screenWindowSeen.titleKey = titleKey; screenWindowSeen.titleAt = now; }
+    if (appKey) { screenWindowSeen.appKey = appKey; screenWindowSeen.appAt = now; }
+    return dup ? reason : '';
+  }
+
+  // 静默时段：支持跨天（如 23:00-06:00）。range 形如 { start: '00:00', end: '05:00' }。
+  function inQuietHours(now = new Date(), range) {
+    if (!range || range.enabled === false) return false;
+    const parse = (s) => {
+      const m = /^(\d{1,2}):(\d{2})$/.exec(String(s ?? '').trim());
+      if (!m) return null;
+      const v = Number(m[1]) * 60 + Number(m[2]);
+      return Number.isFinite(v) ? v : null;
+    };
+    const start = parse(range.start);
+    const end = parse(range.end);
+    if (start == null || end == null || start === end) return false;
+    const cur = now.getHours() * 60 + now.getMinutes();
+    return start < end ? (cur >= start && cur < end) : (cur >= start || cur < end);
+  }
+
   function buildStudyPlanLine(key) {
     if (key !== `private:${String(cfg.ownerQQ ?? '')}`) return '';
     const plan = loadStudyPlan();
@@ -8574,10 +8703,32 @@ async function main() {
       prob = Math.min(1, prob);
       const roll = Math.random();
       const busy = isConversationBusyV2(key, st);
-      const fired = idle >= idleThreshold && roll < prob && !busy;
+      let fired = idle >= idleThreshold && roll < prob && !busy;
+      // ── 三道门禁（2026-09-25，主人拍板）────────────────────────────────
+      // 只在「要看屏幕的会话」上生效（截图只给主人私聊用），避免给群聊白探窗口。
+      let gateNote = '';
+      if (fired && key === `private:${String(cfg.ownerQQ ?? '')}` && cfg.screen?.enabled !== false) {
+        const qh = cfg.socialV2?.proactive?.quietHours ?? { start: '00:00', end: '05:00' };
+        if (inQuietHours(new Date(), qh)) {
+          fired = false;
+          gateNote = `跳过（静默时段 ${qh.start}-${qh.end}，不打扰）`;
+        } else {
+          const title = probeForegroundWindow();
+          if (title && screenDeniedByTitle(title)) {
+            fired = false;
+            gateNote = `跳过（窗口在黑名单里：${title.slice(0, 30)}）`;
+          } else if (title) {
+            const dupReason = screenWindowDuplicate(title);
+            if (dupReason) {
+              fired = false;
+              gateNote = `跳过（${dupReason}：${title.slice(0, 30)}）`;
+            }
+          }
+        }
+      }
       // 主人的私聊每次都记一行评估结果：不然「到底跑没跑」根本看不出来（这次排查就吃了这个亏）
       if (key === `private:${String(cfg.ownerQQ ?? '')}`) {
-        const why = fired ? '触发' : (busy ? '跳过（会话忙）' : (idle < idleThreshold ? `跳过（安静 ${Math.round(idle / 60000)}min，未到门槛 ${Math.round(idleThreshold / 60000)}min）` : '跳过（掷骰未中）'));
+        const why = gateNote || (fired ? '触发' : (busy ? '跳过（会话忙）' : (idle < idleThreshold ? `跳过（安静 ${Math.round(idle / 60000)}min，未到门槛 ${Math.round(idleThreshold / 60000)}min）` : '跳过（掷骰未中）')));
         log(`[reserved2] 主动机会评估 ${key}：概率 ${prob.toFixed(2)}${longSilent ? '（久未说话）' : ''}，掷骰 ${roll.toFixed(2)} → ${why}`);
       }
       if (fired) {
