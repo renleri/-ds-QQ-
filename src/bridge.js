@@ -8714,10 +8714,15 @@ async function main() {
           gateNote = `跳过（静默时段 ${qh.start}-${qh.end}，不打扰）`;
         } else {
           const title = probeForegroundWindow();
-          if (title && screenDeniedByTitle(title)) {
+          if (!title) {
+            // 探测不到窗口（锁屏、切到桌面、PowerShell 被占用…）：**宁可不打扰**。
+            // 否则会在"状态不明"的时候截一张黑屏/桌面图去唤醒她（凌晨那次就是这么发生的）。
+            fired = false;
+            gateNote = '跳过（拿不到前台窗口标题，状态不明，不打扰）';
+          } else if (screenDeniedByTitle(title)) {
             fired = false;
             gateNote = `跳过（窗口在黑名单里：${title.slice(0, 30)}）`;
-          } else if (title) {
+          } else {
             const dupReason = screenWindowDuplicate(title);
             if (dupReason) {
               fired = false;
