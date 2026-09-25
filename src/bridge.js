@@ -1710,7 +1710,18 @@ async function main() {
     const agentTokenOk = (key, token) => {
       const canonical = canonicalV2Key(key);
       const st = socialV2.conversations.get(canonical ?? key);
-      return !!st && !!st.agentToken && token === st.agentToken;
+      if (st && st.agentToken && token === st.agentToken) return true;
+      // 放宽一条（2026-09-25）：**发给主人的私聊**允许用任意「有效会话」的令牌。
+      // 起因：她在群里被主人交代了一件私事，想私下提醒他，却因为「一个会话一个令牌」被拒
+      // （她还认真写了反馈："私事，不能在群里说"）—— 正当需求，不该被堵死。
+      // 安全边界仍保留：群→群、群→别人私聊一律不允许；只有「发给主人」这一条开口，
+      // 且令牌必须属于某个**当前仍被允许**的会话（会话被移除后旧令牌随即失效）。
+      if (canonical === `private:${String(cfg.ownerQQ ?? '')}` && token) {
+        for (const [k, conv] of socialV2.conversations) {
+          if (conv?.agentToken === token && isSessionAllowedInCurrentMode(k)) return true;
+        }
+      }
+      return false;
     };
     // 二代会话工具必须仍命中当前模式的白名单/准入；避免白名单移除后旧 agentToken 继续读状态。
     const v2SessionAllowed = isSessionAllowedInCurrentMode;
@@ -5764,7 +5775,19 @@ async function main() {
       log(`⚠️ 回复被安全策略拦截 (${key})，疑似包含敏感信息${hasKnownToken ? '（含会话令牌）' : ''}`);
       appendActivity(`${key} agent 回复被拦截（疑似敏感信息${hasKnownToken ? '/会话令牌' : ''}）`);
       if (cfg.security?.interceptNotify !== false) {
-        await sendToQQ(key, '⚠️ 本条回复因疑似包含敏感信息（路径/凭据/会话令牌）被安全策略拦截，已记录并通知管理员。');
+        const ownerKey = `private:${String(cfg.ownerQQ ?? '')}`;
+        if (key === ownerKey) {
+          await sendToQQ(key, '⚠️ 本条回复因疑似包含敏感信息（路径/凭据/会话令牌）被安全策略拦截，已记录并通知管理员。');
+        } else {
+          // 群/别人的会话里被拦：**不能**把系统提示发在那个会话里（群友会看到）。
+          // 改成：① 私下告诉主人；② 用静默回合提醒她本人（她才知道自己踩了什么，且不发任何 QQ 消息）。
+          await sendToQQ(ownerKey, `⚠️ 她在 ${key} 的一条回复因疑似包含敏感信息（路径/凭据/会话令牌）被拦截，没有发出去。`).catch(() => { });
+          void deliverPrompt(
+            key,
+            '【安全提醒】你刚才那条回复里疑似包含本机路径、凭据或会话令牌，已被安全策略拦截、**没有发出去**。请不要在消息里写路径、密钥或会话令牌；如果你要私下告诉主人一件事，直接用 qq_send_private_message（userId 填主人的 QQ 号）——任何会话都允许给主人发私聊。',
+            { silent: true }
+          ).catch(() => { });
+        }
       }
       return false;
     }
@@ -8041,6 +8064,13 @@ async function main() {
     studyReminderTimer.unref?.();
   }
 
+  // 工具边界提示：把「能做什么、不能做什么」讲清楚。
+  // 2026-09-25 加：她在群里被主人交代私事，想私下提醒却被令牌挡住（她只好写反馈求助）。
+  // 现在桥接允许「任何会话 → 主人私聊」，所以要把这条路告诉她，她才敢用。
+  function toolBoundaryLine() {
+    return '【工具边界】要给主人私下说事（他交代的提醒、私事），直接用 qq_send_private_message（userId 填主人的 QQ 号）——**任何会话都允许给主人发私聊**，不会再被令牌挡住。\n反过来：**群与群之间、群与别人的私聊不互通**，一个群里的事不要搬到别处去说。\n\n';
+  }
+
   function buildStudyPlanLine(key) {
     if (key !== `private:${String(cfg.ownerQQ ?? '')}`) return '';
     const plan = loadStudyPlan();
@@ -8136,7 +8166,7 @@ async function main() {
     if (wcTr.anyMessage) wcTriggers.push('任意消息');
     if (Number(wcTr.probability) > 0) wcTriggers.push(`概率${wcTr.probability}`);
     const wakeLine = `【当前唤醒】${wcMode}，${wcTime}${wcTriggers.length ? `；触发：${wcTriggers.join('/')}` : ''}\n\n`;
-    const base = qqIdentityLine() + roleLine + tokenLine + buildStudyPlanLine(key) + antiAiLine + proactiveLine + stickerLine + preSleepLine + statusLine + wakeLine + longTermLine + memoryLine + participationLine;
+    const base = qqIdentityLine() + roleLine + tokenLine + buildStudyPlanLine(key) + toolBoundaryLine() + antiAiLine + proactiveLine + stickerLine + preSleepLine + statusLine + wakeLine + longTermLine + memoryLine + participationLine;
     if (String(reason ?? '').startsWith('study:')) {
       // 学习提醒：把「该提醒什么」交给她，让她用自己的话发。base 里已经带了今天的课表与计划。
       const ruleId = String(reason).slice('study:'.length);
