@@ -8253,7 +8253,18 @@ async function main() {
     return `${parts.join('\n')}\n\n`;
   }
 
-  function buildWakePromptV2(key, reason) {
+  // 她是被「提前」叫醒的吗？（她自己约了更晚的醒来时间）
+  // 2026-09-25 加：她的反馈是「约好饭点醒来，却被提前唤醒后顺手设成无限潜水，预约就丢了」。
+  // 主动机会现在已经会尊重预约（见 proactive 的门禁），但如果是主人发消息把她叫醒的，
+  // 那她确实该醒 —— 这时只要**告诉她原本约了几点**，她收尾时自己决定要不要保留。
+  function appointmentLine(extra = {}) {
+    const ms = extra?.prevSleepUntil ? Date.parse(extra.prevSleepUntil) : NaN;
+    if (!Number.isFinite(ms) || ms <= Date.now()) return '';
+    const when = new Date(ms).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    return `【你自己约的时间】你原本设了 ${when} 自己醒来（还没到）——这次是**提前被叫醒**的。\n如果你还想在那个时间点醒来，收尾时用 qq_set_wake_config 把 sleepUntil 重新设上（infinite=false）；觉得没必要了就不用管。\n\n`;
+  }
+
+  function buildWakePromptV2(key, reason, extra = {}) {
     const roleState = readRoleState();
     const roleLine = roleState.role ? `【当前角色】${roleState.role}（完整角色卡请调用 qq_get_prompt 查看）\n\n` : '';
     const st = getSocialV2State(key);
@@ -8295,7 +8306,7 @@ async function main() {
     if (wcTr.anyMessage) wcTriggers.push('任意消息');
     if (Number(wcTr.probability) > 0) wcTriggers.push(`概率${wcTr.probability}`);
     const wakeLine = `【当前唤醒】${wcMode}，${wcTime}${wcTriggers.length ? `；触发：${wcTriggers.join('/')}` : ''}\n\n`;
-    const base = qqIdentityLine() + roleLine + tokenLine + buildStudyPlanLine(key) + toolBoundaryLine() + antiAiLine + proactiveLine + stickerLine + preSleepLine + statusLine + wakeLine + longTermLine + memoryLine + participationLine;
+    const base = qqIdentityLine() + roleLine + tokenLine + buildStudyPlanLine(key) + toolBoundaryLine() + appointmentLine(extra) + antiAiLine + proactiveLine + stickerLine + preSleepLine + statusLine + wakeLine + longTermLine + memoryLine + participationLine;
     if (String(reason ?? '').startsWith('study:')) {
       // 学习提醒：把「该提醒什么」交给她，让她用自己的话发。base 里已经带了今天的课表与计划。
       const ruleId = String(reason).slice('study:'.length);
@@ -8390,7 +8401,7 @@ async function main() {
     st.wakeConfig.wakeCount = (st.wakeConfig.wakeCount || 0) + 1;
     st.lastWakeReason = reason;
     saveSocialV2State();
-    const promptText = buildWakePromptV2(key, reason);
+    const promptText = buildWakePromptV2(key, reason, { prevSleepUntil });
     log(`[reserved2] 唤醒 ${key}（${reason}）`);
     // 「主动机会」时，给主人的私聊附一张他当前的屏幕：这样她开口时有具体的由头，
     // 而不是干巴巴一句「在吗」。截图失败/被间隔挡住都不影响正常唤醒。
@@ -8704,9 +8715,20 @@ async function main() {
       const roll = Math.random();
       const busy = isConversationBusyV2(key, st);
       let fired = idle >= idleThreshold && roll < prob && !busy;
+      // ── 先尊重「她自己约的时间」（2026-09-25 修）───────────────────────
+      // 她的反馈：约好饭点自己醒来，却先被主动机会叫醒、sleepUntil 被清空，
+      // 收尾时又顺手设成无限潜水 —— 预约就这么丢了。
+      // 现在：还没到 sleepUntil 就不主动叫她（到点由 sleepTimer 走 timeout 唤醒，那才是她约的）。
+      let gateNote = '';
+      const wcNow = st.wakeConfig || {};
+      const appointmentMs = !wcNow.infinite && wcNow.sleepUntil ? Date.parse(wcNow.sleepUntil) : NaN;
+      if (fired && Number.isFinite(appointmentMs) && Date.now() < appointmentMs) {
+        fired = false;
+        const when = new Date(appointmentMs).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+        gateNote = `跳过（她自己约了 ${when} 醒来，还没到点）`;
+      }
       // ── 三道门禁（2026-09-25，主人拍板）────────────────────────────────
       // 只在「要看屏幕的会话」上生效（截图只给主人私聊用），避免给群聊白探窗口。
-      let gateNote = '';
       if (fired && key === `private:${String(cfg.ownerQQ ?? '')}` && cfg.screen?.enabled !== false) {
         const qh = cfg.socialV2?.proactive?.quietHours ?? { start: '00:00', end: '05:00' };
         if (inQuietHours(new Date(), qh)) {
