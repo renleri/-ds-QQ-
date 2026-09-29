@@ -1,0 +1,22 @@
+{
+  "name": "qq-mode-console",
+  "version": "0.2.0",
+  "private": true,
+  "description": "QQ 桥接模式：在 DSH WebUI 里切换桥接模式（chat / closed-agent / reserved / reserved2）",
+  "type": "module",
+  "main": "./index.js",
+  "exports": {
+    ".": "./index.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "meta": {
+    "title": "QQ 桥接模式",
+    "description": "在设置里切换 QQ 桥接模式（chat / closed-agent / 一代仿真 / 二代仿真），改完即时生效。"
+  },
+  "license": "MIT"
+}

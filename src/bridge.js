@@ -1441,10 +1441,17 @@ async function main() {
 
   // 从 DSH settings 读取桥接模式；命名空间未注册时回退本地 state/mode.json
   const VALID_MODES = ['chat', 'closed-agent', 'reserved', 'reserved2'];
+  // 命名空间 id 随 DSH 版本变过：
+  //   0.1.x：插件自己 ctx.settings.register('qq-mode', schema)，ns = 'qq-mode'
+  //   0.2.x：设置界面由插件导出的 Config 自动生成，ns = **profile entry id** = 'qq-mode-console'
+  // 两个都认，插件升级不用同步改这里。
+  const QQ_MODE_NAMESPACES = ['qq-mode-console', 'qq-mode'];
   async function refreshMode() {
     try {
       const s = unwrap(await api.settings.describe({}), 'settings.describe');
-      const ns = s.namespaces.find((n) => n.ns === 'qq-mode');
+      // 兼容两种返回：object（gateway 包成 { writable, namespaces }）或 array（host 服务原样）。
+      const list = Array.isArray(s) ? s : (s?.namespaces ?? []);
+      const ns = list.find((n) => QQ_MODE_NAMESPACES.includes(String(n?.ns)));
       if (ns?.value && typeof ns.value.mode === 'string' && VALID_MODES.includes(ns.value.mode)) {
         currentMode = ns.value.mode;
         // DSH 设置页也可配置管理员 QQ；未设置该字段时不覆盖 config.json。

@@ -1,0 +1,11 @@
+# QQ 桥接模式控制台：只声明一个 entry，设置界面由 Config schema 自动生成。
+#
+# entry id 就是设置命名空间（settings.describe 里的 ns），所以它必须与
+# qq-bridge 侧读取时使用的名字一致 —— 桥接同时兼容 'qq-mode'（0.1.x 旧写法）
+# 与 'qq-mode-console'（0.2.x entry id）。
+- insert:
+    - id: qq-mode-console
+      name: qq-mode-console
+      config:
+        mode: reserved2
+        ownerQQ: ''
