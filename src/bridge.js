@@ -301,7 +301,10 @@ function loadConfig() {
     dsh: {
       baseUrl: 'http://127.0.0.1:3080',
       provider: 'deepseek-official',
-      model: 'deepseek-v4-flash-vision-exp',
+      // deepseek-v4-flash-vision-exp 这个 id 已不存在（DSH 报 session/model-unavailable），
+      // 而 deepseek-flash（DeepSeek-V41-Flash）本身就声明了 inputModalities: ["text","image"]，
+      // 看图能力完全够用 —— 2026-09-30 修正，免得每次唤醒都白报两行失败日志。
+      model: 'deepseek-flash',
       reasoningEffort: 'max',
       ...(file.dsh ?? {})
     },
@@ -5890,7 +5893,7 @@ async function main() {
   async function ensureVisionModel(sessionId) {
     if (visionModelAppliedSessions.has(sessionId)) return;
     const provider = String(cfg.dsh?.provider || 'deepseek-official');
-    const model = String(cfg.dsh?.model || 'deepseek-v4-flash-vision-exp');
+    const model = String(cfg.dsh?.model || 'deepseek-flash');
     const effort = String(cfg.dsh?.reasoningEffort || 'max');
     for (let attempt = 1; attempt <= 2; attempt += 1) {
       try {
