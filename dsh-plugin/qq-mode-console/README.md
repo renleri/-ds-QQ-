@@ -18,15 +18,42 @@ DSH 的 `settings/describe` 读取，不需要重启桥接。
 0.2.x 的官方做法简单得多：**插件导出 `Config` schema，设置界面自动生成**。
 所以这个 bundle 现在是 **Host-only**，`client.js` 整个删掉了。
 
-### 命名空间 id 变了（升级时最容易踩的地方）
+### 但只导出 Config 还不够（实测踩到的第二个坑）
 
-自动生成的表单项按 **profile entry id** 索引，所以 `settings.describe` 里的 `ns`：
+装上之后用 `plugin_manager list_plugins` 查，会发现插件**确实激活了**：
 
-- 0.1.x：`qq-mode`（插件自己 `register` 的名字）
-- 0.2.x：**`qq-mode-console`**（= 本 patch 的 entry id）
+```
+{"entryId":"include:qq-mode-console","moduleName":"qq-mode-console",
+ "enabled":true,"fiberPhase":"active","patchId":"qq-mode-console"}
+```
 
-`qq-bridge` 侧（`src/bridge.js` 的 `refreshMode()`）**两个都认**，所以插件升级
-不需要同步改桥接配置。
+`Config.listConfigs` 也能看到完整 schema（字段、枚举、说明都对）——
+可是 `settings.describe()` 的 `namespaces` 里**没有它**，桥接因此读不到值。
+
+原因：`settings.describe()` 只列出**认领过设置页策略**的条目。所以 `apply` 里必须调用：
+
+```js
+export const inject = ['settings'];
+export function apply(ctx, config) {
+  ctx.settings.configure({ auto: true });   // ← 缺这一步，设置界面里就没有它
+}
+```
+
+另外插件会把当前取值**落一份到 profile 目录的 `qq-mode.json`**（`syncModeFile`），
+让桥接有一个不依赖 `describe()` 过滤行为的、格式自控的来源。
+
+### 命名空间 id
+
+设置条目的 `ns` = **profile entry id**（本 patch 的 id，即 `qq-mode-console`；
+loader 树里它的 entryId 是 `include:qq-mode-console`，但 ns 用裸 id）。
+更早的版本里插件自己 `register` 的名字是 `qq-mode`。
+`qq-bridge` 侧**两个都认**（`src/bridge.js` 的 `refreshMode()`），且有三路来源：
+
+1. `qq-mode.json`（插件落盘，最可靠）
+2. DSH `settings.describe()`（ns = `qq-mode-console` 或 `qq-mode`）
+3. 本地 `state/mode.json`（DSH 不可用时的回退）
+
+桥接日志会写一行 `模式来源：…`，一眼看出当前用的是哪一路。
 
 ## 安装
 

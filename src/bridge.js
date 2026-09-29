@@ -1439,14 +1439,67 @@ async function main() {
     setTimeout(() => { flushQueue(); }, 3000);
   };
 
-  // 从 DSH settings 读取桥接模式；命名空间未注册时回退本地 state/mode.json
+  // 桥接模式的来源，优先级从高到低：
+  //   ① profile 目录的 qq-mode.json —— qq-mode-console 插件每次激活/改设置时落盘的文件，
+  //      格式自控、最可靠（2026-09-29 加：实测 settings.describe() 里可能看不到该插件，
+  //      因为它只列出"认领了设置页策略"的条目）。
+  //   ② DSH settings —— ns 随版本变过：0.1.x 插件自己 register 的是 'qq-mode'，
+  //      0.2.x 的自动表单项用 profile entry id 'qq-mode-console'；两个都认。
+  //   ③ 本地 state/mode.json —— DSH 不可用时的老路径。
   const VALID_MODES = ['chat', 'closed-agent', 'reserved', 'reserved2'];
-  // 命名空间 id 随 DSH 版本变过：
-  //   0.1.x：插件自己 ctx.settings.register('qq-mode', schema)，ns = 'qq-mode'
-  //   0.2.x：设置界面由插件导出的 Config 自动生成，ns = **profile entry id** = 'qq-mode-console'
-  // 两个都认，插件升级不用同步改这里。
   const QQ_MODE_NAMESPACES = ['qq-mode-console', 'qq-mode'];
+
+  /** 读插件落盘的 qq-mode.json（扫 ~/.dsh/profiles/<name>/，profile 名不写死）。 */
+  function readQqModeFile() {
+    const candidates = [];
+    const explicit = String(cfg.dsh?.qqModeFile ?? '').trim();
+    if (explicit) candidates.push(explicit);
+    try {
+      const home = process.env.USERPROFILE || process.env.HOME || '';
+      const profilesDir = home ? path.join(home, '.dsh', 'profiles') : '';
+      if (profilesDir && fs.existsSync(profilesDir)) {
+        for (const name of fs.readdirSync(profilesDir)) {
+          candidates.push(path.join(profilesDir, name, 'qq-mode.json'));
+        }
+      }
+    } catch { /* 读不到就当没有这条来源 */ }
+    for (const file of candidates) {
+      const data = readJsonSafe(file, null);
+      if (data && typeof data.mode === 'string' && VALID_MODES.includes(data.mode)) {
+        return { ...data, __file: file };
+      }
+    }
+    return null;
+  }
+
+  /** 把 ownerQQ 应用到运行配置（空值表示不覆盖 config.json）。 */
+  function applyOwnerQQ(raw) {
+    if (raw === undefined || raw === null || String(raw).trim() === '') return;
+    try {
+      cfg.ownerQQ = normalizeOwnerQQ(raw);
+    } catch (error) {
+      log(`DSH settings ownerQQ 无效，已忽略: ${error?.message ?? error}`);
+    }
+  }
+
+  /** 模式来源变化时记一行：否则"到底从哪读到的"完全看不出来。 */
+  let lastModeSource = '';
+  function noteModeSource(source) {
+    if (source === lastModeSource) return;
+    lastModeSource = source;
+    log(`[reserved2] 模式来源：${source}（当前模式 ${currentMode}）`);
+  }
+
   async function refreshMode() {
+    // ① 插件落盘的文件（最可靠）
+    const fromFile = readQqModeFile();
+    if (fromFile) {
+      currentMode = fromFile.mode;
+      applyOwnerQQ(fromFile.ownerQQ);
+      noteModeSource(`qq-mode.json（${fromFile.__file}）`);
+      return;
+    }
+    // ② DSH settings
     try {
       const s = unwrap(await api.settings.describe({}), 'settings.describe');
       // 兼容两种返回：object（gateway 包成 { writable, namespaces }）或 array（host 服务原样）。
@@ -1455,21 +1508,18 @@ async function main() {
       if (ns?.value && typeof ns.value.mode === 'string' && VALID_MODES.includes(ns.value.mode)) {
         currentMode = ns.value.mode;
         // DSH 设置页也可配置管理员 QQ；未设置该字段时不覆盖 config.json。
-        if (ns.value.ownerQQ !== undefined) {
-          try {
-            cfg.ownerQQ = normalizeOwnerQQ(ns.value.ownerQQ);
-          } catch (error) {
-            log(`DSH settings ownerQQ 无效，已忽略: ${error?.message ?? error}`);
-          }
-        }
+        applyOwnerQQ(ns.value.ownerQQ);
+        noteModeSource(`DSH settings（ns=${String(ns.ns)}）`);
         return;
       }
-    } catch {}
+    } catch { /* 落到 ③ */ }
+    // ③ 本地 state/mode.json
     const local = readJsonSafe(path.join(STATE_DIR, 'mode.json'), null);
     if (local?.mode && VALID_MODES.includes(local.mode)) currentMode = local.mode;
     if (typeof local?.closedAgentPreset === 'string' && local.closedAgentPreset) {
       closedAgentPreset = local.closedAgentPreset;
     }
+    noteModeSource('state/mode.json（回退）');
   }
 
   /** 当前模式是否允许该会话进入 */
