@@ -1,0 +1,16 @@
+{
+  "name": "qq-chat-presets",
+  "version": "1.0.0",
+  "private": true,
+  "description": "把 QQ 聊天用的 agent preset（qq-chat / qq-chat-v2）注册进 DSH profile",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "meta": {
+    "title": "QQ 聊天预设",
+    "description": "为 QQ 桥接注册 qq-chat / qq-chat-v2 两个 agent preset（内容由 ~/.dsh/.agent-presets 转换而来）。"
+  },
+  "license": "MIT"
+}
