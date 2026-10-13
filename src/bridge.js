@@ -6855,6 +6855,7 @@ async function main() {
   loadSessionsMap();
   loadSocialV2State();
   startStudyReminders();
+  startAuthHealthWatch();
 
   function isSocialEnabled() {
     return currentMode === 'reserved' && cfg.social?.enabled !== false;
@@ -8260,6 +8261,70 @@ async function main() {
     return start < end ? (cur >= start && cur < end) : (cur >= start || cur < end);
   }
 
+  // ── DSH 鉴权健康自检（2026-10-13 事故后加）────────────────────────────
+  // 背景：桥接用 launch token 换来的 cookie 有 **30 天**有效期，过期后 DSH 的 Web API
+  // 一律 401，她收不到任何消息，日志里只有「DSH 不可用，消息入队」——
+  // 主人发现时她已经哑了 2.5 天。所以要在过期**之前**就喊：
+  //   ① 写日志（给技术排查）② 让她在 QQ 上提醒主人（给她自己争取被修的机会）。
+  // cookie 结构（实测）：名 = `dsh-auth-<sha256(authority)>`，值 = `v1.<base64url(payload)>.<sig>`，
+  // payload 含 version / authority / issuedAt / expiresAt。格式一变就静默跳过（宁可漏报不误报）。
+  const AUTH_WARN_DAYS = 3;
+  const AUTH_WARN_COOLDOWN_MS = 6 * 60 * 60 * 1000;
+  let authWarnedAt = 0;
+
+  function readAuthState() {
+    try {
+      const raw = fs.readFileSync(path.join(STATE_DIR, 'dsh-cookie.txt'), 'utf8').trim();
+      const value = raw.slice(raw.indexOf('=') + 1);
+      const payload = JSON.parse(Buffer.from(value.split('.')[1], 'base64url').toString('utf8'));
+      const expiresAt = Number(payload?.expiresAt);
+      if (!Number.isFinite(expiresAt)) return null;
+      return { expiresAt, issuedAt: Number(payload?.issuedAt) || 0, authority: String(payload?.authority ?? '') };
+    } catch {
+      return null;
+    }
+  }
+
+  function authDaysLeft() {
+    const st = readAuthState();
+    return st ? (st.expiresAt - Date.now()) / 86400000 : null;
+  }
+
+  function checkAuthHealth(force = false) {
+    const days = authDaysLeft();
+    if (days === null) return;
+    if (days > AUTH_WARN_DAYS) return;
+    if (!force && Date.now() - authWarnedAt < AUTH_WARN_COOLDOWN_MS) return;
+    authWarnedAt = Date.now();
+    const fix = '修法：跑 qq-bridge 的 scripts\\start-dsh.ps1（重新抓 launch token 并同步），或把 dsh web 启动时那条带 ?token= 的 URL 填进 config.json 的 dsh.authToken。';
+    if (days <= 0) {
+      log(`⚠️ DSH 认证已过期 ${Math.abs(days).toFixed(1)} 天 —— 她现在收不到任何消息（消息只在入队）。${fix}`);
+    } else {
+      log(`⚠️ DSH 认证凭证还有 ${days.toFixed(1)} 天过期，过期后她会彻底收不到消息。${fix}`);
+    }
+  }
+
+  /**
+   * 启动鉴权健康看护：首次检查**延迟 3 秒**（本函数在启动区被调用，而上面几个 const
+   * 声明在文件更靠后的位置 —— 立即执行会踩 TDZ，本项目已经因此崩过一次），之后每小时一次。
+   */
+  function startAuthHealthWatch() {
+    setTimeout(() => checkAuthHealth(true), 3000).unref?.();
+    const timer = setInterval(() => checkAuthHealth(), 60 * 60 * 1000);
+    timer.unref?.();
+  }
+
+  /** 快过期时，在她的唤醒提示里加一句，让她主动提醒主人。 */
+  function authNoticeLine(key) {
+    if (key !== `private:${String(cfg.ownerQQ ?? '')}`) return '';
+    const days = authDaysLeft();
+    if (days === null || days > AUTH_WARN_DAYS) return '';
+    if (days <= 0) {
+      return '【系统提醒·重要】DSH 的登录凭证**已经过期**，你现在收不到主人的任何消息（他发的都进不来）。请在能说话时提醒主人：跑一下 qq-bridge 的 scripts/start-dsh.ps1 更新 token。\n\n';
+    }
+    return `【系统提醒】DSH 的登录凭证还有 ${days.toFixed(1)} 天过期；过期后你就收不到主人的任何消息了。请在回复里自然地带一句，提醒他跑一下 qq-bridge 的 scripts/start-dsh.ps1 更新 token。\n\n`;
+  }
+
   function buildStudyPlanLine(key) {
     if (key !== `private:${String(cfg.ownerQQ ?? '')}`) return '';
     const plan = loadStudyPlan();
@@ -8366,7 +8431,7 @@ async function main() {
     if (wcTr.anyMessage) wcTriggers.push('任意消息');
     if (Number(wcTr.probability) > 0) wcTriggers.push(`概率${wcTr.probability}`);
     const wakeLine = `【当前唤醒】${wcMode}，${wcTime}${wcTriggers.length ? `；触发：${wcTriggers.join('/')}` : ''}\n\n`;
-    const base = qqIdentityLine() + roleLine + tokenLine + buildStudyPlanLine(key) + toolBoundaryLine() + appointmentLine(extra) + antiAiLine + proactiveLine + stickerLine + preSleepLine + statusLine + wakeLine + longTermLine + memoryLine + participationLine;
+    const base = qqIdentityLine() + roleLine + tokenLine + authNoticeLine(key) + buildStudyPlanLine(key) + toolBoundaryLine() + appointmentLine(extra) + antiAiLine + proactiveLine + stickerLine + preSleepLine + statusLine + wakeLine + longTermLine + memoryLine + participationLine;
     if (String(reason ?? '').startsWith('study:')) {
       // 学习提醒：把「该提醒什么」交给她，让她用自己的话发。base 里已经带了今天的课表与计划。
       const ruleId = String(reason).slice('study:'.length);
