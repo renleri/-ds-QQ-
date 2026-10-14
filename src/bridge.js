@@ -7746,13 +7746,28 @@ async function main() {
         }
       }
     }
+    // 入站消息文本的保留策略（2026-10-14 修）：
+    // 旧行为是 `text/plain = slice(0,200)` + `tail = slice(-200)` —— 只留头尾各 200、
+    // **中间整段丢弃**。主人发 300+ 字符的 C 代码时，她看到的是"开头一段 + 结尾一段"，
+    // 中段从未进入她的上下文，于是拿着被腰斩的代码做诊断（实测 10-10、10-14 共 6 条消息
+    // 全部恰好 200 字符、末字符停在半个 scanf 上）。
+    // 新行为：上限放宽到 messageMaxChars（默认 2000，可配），超长时保留头 70% + 尾 30%，
+    // 并在**中间插入明确的省略标记**——宁可让她知道自己看到的不全，也不要静默丢内容。
+    const clipLimit = Math.max(200, Number(cfg.socialV2?.context?.messageMaxChars) || 2000);
+    const clipInbound = (raw) => {
+      const s = String(raw ?? '');
+      if (s.length <= clipLimit) return s;
+      const head = Math.floor(clipLimit * 0.7);
+      const tail = clipLimit - head;
+      return `${s.slice(0, head)}\n……（中间省略 ${s.length - clipLimit} 字符；原文共 ${s.length} 字符，如需完整内容请让主人分段发）……\n${s.slice(-tail)}`;
+    };
     const msg = {
       seq: (st.lastUnreadSeq || 0) + 1,
       messageId: messageId != null ? String(messageId) : null,
       sender,
       userId: userId != null ? String(userId) : null,
-      text: String(textContent).slice(0, 200),
-      plain: String(plainContent ?? textContent).slice(0, 200),
+      text: clipInbound(textContent),
+      plain: clipInbound(plainContent ?? textContent),
       tail: String(plainContent ?? textContent).slice(-200),
       quoteTargetIsSelf: !!quoteTargetIsSelf,
       isOwner: !!isOwner,
@@ -7832,7 +7847,10 @@ async function main() {
     const recentLimit = Number(cfg.socialV2?.context?.recentLimit) || 100;
     const list = Array.isArray(messages) ? messages : [];
     for (let i = 0; i < list.length; i++) {
-      const text = redactKnownTokensOnly(String(list[i] ?? '')).slice(0, 200);
+      // 这里原先 slice(0, 200)：她发出的长消息自己回看时也会缺内容。
+      // 她本来就受 send.maxMessageChars（角色卡 20~50 字、默认 500）约束，
+      // 所以记录侧不需要再截——直接留全文，免得"她自己说过什么"也失真。
+      const text = redactKnownTokensOnly(String(list[i] ?? ''));
       st.recentMessages.push({
         sender: '我',
         text,
