@@ -1,0 +1,356 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>小鲸鱼控制台</title>
+<style>
+  :root {
+    --bg: #0d1117; --card: #161b22; --line: #232b36; --fg: #e6edf3; --dim: #8b98a5;
+    --ok: #3fb950; --warn: #d29922; --bad: #f85149; --accent: #4fc3f7;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+    font: 14px/1.6 system-ui, "Segoe UI", "Microsoft YaHei", sans-serif; }
+  header { display: flex; align-items: baseline; gap: 12px; padding: 18px 22px 10px; flex-wrap: wrap; }
+  h1 { font-size: 19px; margin: 0; font-weight: 650; }
+  h1 .whale { color: var(--accent); }
+  .meta { color: var(--dim); font-size: 12.5px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  button { font: inherit; cursor: pointer; border: 1px solid var(--line); background: #1f2733;
+    color: var(--fg); padding: 4px 11px; border-radius: 7px; transition: .15s; }
+  button:hover { border-color: var(--accent); color: var(--accent); }
+  button:disabled { opacity: .5; cursor: default; }
+  main { display: grid; gap: 14px; padding: 8px 22px 26px;
+    grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+  .card h2 { font-size: 14.5px; margin: 0 0 10px; display: flex; align-items: center; gap: 8px; font-weight: 600; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--dim); flex: none; }
+  .dot.ok { background: var(--ok); box-shadow: 0 0 8px #3fb95066; }
+  .dot.warn { background: var(--warn); }
+  .dot.bad { background: var(--bad); box-shadow: 0 0 8px #f8514966; }
+  dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; }
+  dt { color: var(--dim); white-space: nowrap; }
+  dd { margin: 0; word-break: break-word; }
+  .big { font-size: 26px; font-weight: 650; color: var(--accent); line-height: 1.2; }
+  .sub { color: var(--dim); font-size: 12.5px; }
+  .alert { margin-top: 9px; padding: 7px 10px; border-radius: 8px; font-size: 12.5px;
+    background: #f851491a; border: 1px solid #f8514955; color: #ffb3ae; }
+  .warnbox { margin-top: 9px; padding: 7px 10px; border-radius: 8px; font-size: 12.5px;
+    background: #d299221a; border: 1px solid #d2992255; color: #e3c07b; }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 11px; }
+  pre { background: #0b0f14; border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px;
+    font-size: 12.5px; line-height: 1.55; max-height: 260px; overflow: auto; white-space: pre-wrap; margin: 9px 0 0; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  details summary { cursor: pointer; color: var(--dim); font-size: 12.5px; }
+  /* 配置表单 */
+  .form { display: grid; gap: 9px; margin-top: 10px; }
+  .form label { display: flex; flex-direction: column; gap: 3px; font-size: 12.5px; color: var(--dim); }
+  .form label.chk { flex-direction: row; align-items: center; gap: 7px; color: var(--fg); }
+  .form input[type=number], .form input[type=text], .form select, .form textarea {
+    font: inherit; background: #0b0f14; color: var(--fg); border: 1px solid var(--line);
+    border-radius: 7px; padding: 5px 8px; }
+  .form input[type=number] { width: 92px; }
+  .form textarea { resize: vertical; font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; }
+  .form hr { border: none; border-top: 1px solid var(--line); margin: 7px 0; }
+  .hint-bad { font-size: 12px; color: #ffb3ae; line-height: 1.5; margin: -2px 0 5px; }
+  .risk b { color: #ffb3ae; }
+  footer { padding: 0 22px 22px; color: var(--dim); font-size: 12.5px; display: flex; gap: 16px; flex-wrap: wrap; }
+  .mono { font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; }
+</style>
+</head>
+<body>
+<header>
+  <h1><span class="whale">🐋</span> 小鲸鱼控制台</h1>
+  <div class="meta">
+    <span id="at">读取中…</span>
+    <button id="refresh">刷新</button>
+    <label class="sub"><input type="checkbox" id="auto" checked> 每 8 秒自动刷新</label>
+  </div>
+</header>
+
+<main>
+  <section class="card" id="card-dsh">
+    <h2><span class="dot" id="dsh-dot"></span> DeepSeek Harness</h2>
+    <dl>
+      <dt>服务</dt><dd id="dsh-running">—</dd>
+      <dt>认证 cookie</dt><dd id="dsh-auth">—</dd>
+    </dl>
+    <div id="dsh-alert"></div>
+  </section>
+
+  <section class="card" id="card-bridge">
+    <h2><span class="dot" id="br-dot"></span> QQ 桥接 · 希罗酱</h2>
+    <dl>
+      <dt>进程</dt><dd id="br-proc">—</dd>
+      <dt>端口</dt><dd id="br-ports" class="mono">—</dd>
+      <dt>角色</dt><dd id="br-role">—</dd>
+      <dt>模式</dt><dd id="br-mode">—</dd>
+      <dt>模式来源</dt><dd id="br-src" class="sub">—</dd>
+    </dl>
+    <div id="br-alert"></div>
+    <div class="actions">
+      <button data-act="restart-bridge">重启桥接</button>
+      <a href="http://127.0.0.1:3100/" target="_blank"><button>打开桥接控制台</button></a>
+    </div>
+  </section>
+
+  <section class="card" id="card-bili">
+    <h2><span class="dot" id="bili-dot"></span> 刷B站</h2>
+    <dl>
+      <dt>登录</dt><dd id="bili-login">—</dd>
+      <dt>Python 环境</dt><dd id="bili-venv">—</dd>
+      <dt>今日</dt><dd id="bili-today">—</dd>
+      <dt>上次运行</dt><dd id="bili-last">—</dd>
+      <dt>巡航 / 诱饵</dt><dd id="bili-cruise">—</dd>
+    </dl>
+    <div id="bili-alert"></div>
+    <div class="actions">
+      <button data-act="bili-run">现在跑一轮</button>
+      <button data-act="bili-install">装/修依赖</button>
+    </div>
+    <details id="bili-edit" style="margin-top:12px">
+      <summary>修改配置（保存后立即生效，DSH 设置页也会同步）</summary>
+      <div class="form">
+        <label>每日上限 <input type="number" id="f-perDay" min="0" max="50" step="1"></label>
+        <label>每轮挑 <input type="number" id="f-perRun" min="1" max="10" step="1"> 条</label>
+        <label>巡航
+          <select id="f-cruise">
+            <option value="off">off — 只手动</option>
+            <option value="normal">normal — 每 30 分钟</option>
+            <option value="crazy">crazy — 每 5 分钟</option>
+          </select>
+        </label>
+        <label>日报
+          <select id="f-reportLevel">
+            <option value="full">完整</option>
+            <option value="brief">精简</option>
+            <option value="off">不写</option>
+          </select>
+        </label>
+        <label class="chk"><input type="checkbox" id="f-peakValley"> 峰谷错峰（谷时跑，省额度）</label>
+        <label class="chk"><input type="checkbox" id="f-noon"> 饭点提醒</label>
+        <label class="chk"><input type="checkbox" id="f-night"> 夜间也跑</label>
+        <label class="chk"><input type="checkbox" id="f-transcribe"> 本地转写（需另装 1GB 模型）</label>
+        <hr>
+        <label class="chk risk"><input type="checkbox" id="f-autoComment"> <b>自动评论并 @ 你</b></label>
+        <div class="hint-bad">⚠️ 这是**拿你的 B站账号说话** —— 打开后它会真的发评论。插件作者的原话：「别擅自打开」。要用请自己确认。</div>
+        <label>要 @ 谁（逗号/顿号分隔，可多人）<input type="text" id="f-mentionName" placeholder="例如：甲,乙"></label>
+        <label class="chk risk"><input type="checkbox" id="f-bait"> <b>编造诱饵</b></label>
+        <div class="hint-bad">⚠️ 允许评论里给视频安一个它没有的内容（插件描述原话）。这属于发布不实信息，账号可能被处理。</div>
+        <hr>
+        <label>关键词（逗号分隔，留空则不用）<input type="text" id="f-keywords" placeholder="例如：抽象,整活"></label>
+        <label>赤石 UP 名单（一行一个）<textarea id="f-upList" rows="4"></textarea></label>
+        <div class="actions">
+          <button id="bili-save">保存</button>
+          <span id="bili-save-log" class="sub"></span>
+        </div>
+      </div>
+    </details>
+    <details id="bili-report-wrap" style="margin-top:10px"><summary>日报</summary><pre id="bili-report">—</pre></details>
+  </section>
+
+  <section class="card" id="card-bal">
+    <h2><span class="dot" id="bal-dot"></span> DeepSeek 余额</h2>
+    <div class="big" id="bal-total">—</div>
+    <div class="sub" id="bal-sub">—</div>
+  </section>
+</main>
+
+<footer>
+  <a href="http://127.0.0.1:3080/" target="_blank">打开 DSH</a>
+  <a href="http://127.0.0.1:3080/" target="_blank">DSH 设置 → 刷B站</a>
+  <span id="act-log" class="sub"></span>
+</footer>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const setDot = (id, cls) => { $(id).className = 'dot ' + (cls || ''); };
+const txt = (id, v) => { $(id).textContent = v == null || v === '' ? '—' : String(v); };
+
+function fmtTime(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (isNaN(d)) return '—';
+  return d.toLocaleString('zh-CN', { hour12: false });
+}
+
+async function load() {
+  try {
+    const r = await fetch('/api/all', { cache: 'no-store' });
+    const j = await r.json();
+    render(j);
+    $('at').textContent = '最后刷新：' + new Date().toLocaleTimeString('zh-CN', { hour12: false });
+  } catch (e) {
+    $('at').textContent = '读取失败：' + e.message;
+  }
+}
+
+function render(j) {
+  // DSH
+  setDot('dsh-dot', j.dsh?.running ? 'ok' : 'bad');
+  txt('dsh-running', j.dsh?.running ? '运行中（3080 可连）' : '未运行');
+  const a = j.auth || {};
+  if (!a.hasCookie) {
+    txt('dsh-auth', '没有 cookie');
+    setDot('dsh-dot', 'bad');
+  } else if (typeof a.daysLeft === 'number') {
+    txt('dsh-auth', `剩余 ${a.daysLeft} 天（${fmtTime(a.expiresAt)} 到期）`);
+    if (a.daysLeft <= 0) { setDot('dsh-dot', 'bad'); $('dsh-alert').innerHTML = `<div class="alert">认证已过期 —— 她收不到任何 QQ 消息。跑一次 <span class="mono">scripts\\start-dsh.ps1</span> 或 <span class="mono">read-dsh-token.ps1</span> 更新 token。</div>`; }
+    else if (a.daysLeft <= 3) { $('dsh-alert').innerHTML = `<div class="warnbox">认证还有 ${a.daysLeft} 天到期，建议尽快更新 token。</div>`; }
+    else $('dsh-alert').innerHTML = '';
+  } else { txt('dsh-auth', 'cookie 存在（到期时间未解析）'); $('dsh-alert').innerHTML = ''; }
+
+  // 桥接
+  const b = j.bridge || {};
+  setDot('br-dot', b.alive && b.console ? 'ok' : (b.alive ? 'warn' : 'bad'));
+  txt('br-proc', b.alive ? `运行中（PID ${b.pid}）` : '未运行');
+  txt('br-ports', `控制台 3100 ${b.console ? '✓' : '✗'} · 网关 3001 ${b.snowluma ? '✓' : '✗'}`);
+  txt('br-role', b.role || '—');
+  txt('br-mode', b.mode || '—');
+  txt('br-src', b.modeSource || '—');
+  $('br-alert').innerHTML = b.dshDownLine
+    ? `<div class="alert">最近出现过：${b.dshDownLine.replace(/</g, '&lt;')}</div>` : '';
+
+  // 刷B站
+  const bil = j.bili || {};
+  if (!bil.ok) {
+    setDot('bili-dot', 'warn');
+    txt('bili-login', '—'); txt('bili-venv', '—'); txt('bili-today', '—'); txt('bili-last', '—'); txt('bili-cruise', '—');
+    $('bili-alert').innerHTML = `<div class="warnbox">读不到状态：${(bil.error || bil.status || '').toString().replace(/</g, '&lt;')}</div>`;
+  } else {
+    setDot('bili-dot', bil.loggedIn && bil.venvReady ? 'ok' : (bil.installing ? 'warn' : 'warn'));
+    txt('bili-login', bil.loggedIn ? '已登录 ✓' : '未登录（去 DSH 设置 → 刷B站 扫码）');
+    txt('bili-venv', bil.venvReady ? '就绪 ✓' : (bil.installing ? '安装中…' : (bil.installFailed ? '安装失败 ✗' : '未安装')));
+    txt('bili-today', `跑了 ${bil.ranToday ?? 0} 轮 · 挑中 ${bil.pickedToday ?? 0} 条（上限 ${bil.perDay ?? '—'}/天）`);
+    txt('bili-last', bil.lastRunAt ? `${fmtTime(bil.lastRunAt)} · ${bil.lastResult || ''}` : '还没跑过');
+    txt('bili-cruise', `巡航 ${bil.cruise || 'off'} · 诱饵 ${bil.bait ? '开 ✗' : '关 ✓'}`);
+    $('bili-alert').innerHTML = (!bil.loggedIn)
+      ? `<div class="warnbox">还没登录 B站 —— 扫码后才能跑。</div>` : '';
+    if (bil.report) { $('bili-report').textContent = bil.report; $('bili-report-wrap').style.display = ''; }
+    else { $('bili-report-wrap').style.display = 'none'; }
+    if (bil.config) fillBiliForm(bil.config);
+  }
+
+  // 余额
+  const bal = j.balance || {};
+  if (bal.ok) {
+    setDot('bal-dot', 'ok');
+    txt('bal-total', `${bal.total} ${bal.currency || ''}`);
+    txt('bal-sub', `赠金 ${bal.bonus ?? '—'} · 充值 ${bal.recharge ?? '—'} · 更新于 ${fmtTime(bal.updatedAt)}`);
+  } else { setDot('bal-dot', 'warn'); txt('bal-total', '—'); txt('bal-sub', '读取失败'); }
+}
+
+async function act(name, btn) {
+  btn.disabled = true;
+  const old = btn.textContent;
+  btn.textContent = '执行中…';
+  $('act-log').textContent = `正在执行 ${name}…`;
+  try {
+    const r = await fetch('/api/action/' + name, { method: 'POST' });
+    const j = await r.json();
+    $('act-log').textContent = (j.ok ? '✓ ' : '✗ ') + name + '：' + String(j.detail ?? '').slice(-160);
+    await load();
+  } catch (e) {
+    $('act-log').textContent = '✗ ' + name + '：' + e.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = old;
+  }
+}
+
+document.querySelectorAll('[data-act]').forEach((el) => el.addEventListener('click', (e) => {
+  e.preventDefault();
+  act(el.dataset.act, el);
+}));
+$('refresh').addEventListener('click', load);
+
+// ── 刷B站配置表单 ────────────────────────────────────────────────────────────
+let lastCfg = null;
+
+function fillBiliForm(cfg) {
+  if (!cfg) return;
+  lastCfg = cfg;
+  // 只在用户没在编辑时回填，避免刷新把正在输入的内容冲掉
+  const active = document.activeElement;
+  const editing = active && active.closest && active.closest('#bili-edit');
+  if (editing) return;
+  const setVal = (id, v) => { const el = $(id); if (el) el.value = v ?? ''; };
+  const setChk = (id, v) => { const el = $(id); if (el) el.checked = !!v; };
+  setVal('f-perDay', cfg.perDay);
+  setVal('f-perRun', cfg.perRun);
+  setVal('f-cruise', cfg.cruise || 'off');
+  setVal('f-reportLevel', cfg.reportLevel || 'full');
+  setChk('f-peakValley', cfg.peakValley);
+  setChk('f-noon', cfg.noon);
+  setChk('f-night', cfg.night);
+  setChk('f-transcribe', cfg.transcribe);
+  setChk('f-autoComment', cfg.autoComment);
+  setChk('f-bait', cfg.bait);
+  setVal('f-mentionName', cfg.mentionName);
+  setVal('f-keywords', Array.isArray(cfg.keywords) ? cfg.keywords.join(',') : (cfg.keywords || ''));
+  setVal('f-upList', cfg.upList);
+}
+
+async function saveBiliForm() {
+  const btn = $('bili-save');
+  const log = $('bili-save-log');
+  btn.disabled = true;
+  log.textContent = '保存中…';
+  const body = {
+    perDay: Number($('f-perDay').value) || 0,
+    perRun: Math.max(1, Number($('f-perRun').value) || 1),
+    cruise: $('f-cruise').value,
+    reportLevel: $('f-reportLevel').value,
+    peakValley: $('f-peakValley').checked,
+    noon: $('f-noon').checked,
+    night: $('f-night').checked,
+    transcribe: $('f-transcribe').checked,
+    autoComment: $('f-autoComment').checked,
+    mentionName: $('f-mentionName').value.trim(),
+    bait: $('f-bait').checked,
+    keywords: $('f-keywords').value.split(/[,，、\s]+/).map((s) => s.trim()).filter(Boolean),
+    upList: $('f-upList').value,
+  };
+  // 二次确认：只有这两项会"拿你的号说话"，改了就提醒
+  const risky = [];
+  if (lastCfg && !lastCfg.autoComment && body.autoComment) risky.push('自动评论并 @ 你');
+  if (lastCfg && !lastCfg.bait && body.bait) risky.push('编造诱饵');
+  if (risky.length && !confirm('你正在打开：' + risky.join('、') + '\n\n这会用你的 B站 账号发布内容，确定吗？')) {
+    btn.disabled = false;
+    log.textContent = '已取消';
+    return;
+  }
+  try {
+    const r = await fetch('/api/bili-config', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+    });
+    const j = await r.json();
+    if (j.ok) {
+      log.textContent = `已保存 ✓（${(j.sent || []).length} 个字段；DSH 设置页${j.host?.ok ? '已同步' : '同步失败'}）`;
+      if (j.config) fillBiliForm(j.config);
+      load();
+    } else {
+      log.textContent = '✗ ' + (j.detail || j.error || '保存失败');
+    }
+  } catch (e) {
+    log.textContent = '✗ ' + e.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+$('bili-save').addEventListener('click', saveBiliForm);
+
+let timer = null;
+function schedule() {
+  clearInterval(timer);
+  if ($('auto').checked) timer = setInterval(load, 8000);
+}
+$('auto').addEventListener('change', schedule);
+
+load();
+schedule();
+</script>
+</body>
+</html>
