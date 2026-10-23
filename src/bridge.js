@@ -8377,8 +8377,12 @@ async function main() {
   }
 
   function biliDigestPrompt(text) {
-    const body = String(text ?? '').trim();
-    const trimmed = body.length > 3500 ? `${body.slice(0, 3500)}\n……（日报过长，已截断）` : body;
+    // 日报里的链接是 Markdown 形式 `[链接](https://…)`，而她被要求"别贴 Markdown"，
+    // 照抄会连链接一起不敢用。所以先把它剥成裸 URL —— QQ 里裸链接照样可点。
+    const raw = String(text ?? '')
+      .replace(/\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/g, (_m, _label, url) => url)
+      .trim();
+    const trimmed = raw.length > 3500 ? `${raw.slice(0, 3500)}\n……（日报过长，已截断）` : raw;
     return [
       '【刷B站日报】「刷B站」插件刚跑完一轮，写了下面这份日报（Markdown，别原样转发）：',
       '',
@@ -8387,6 +8391,8 @@ async function main() {
       '请你**用自己的话**在私聊里跟主人说这一轮挑到什么：',
       '- 1~3 条消息，不要超过 3 条；像朋友分享看到的好东西，不要念报告、不要贴 Markdown、不要列点。',
       '- 挑一两条你觉得最值得说的，说出**你自己的看法**（值不值得看、哪里有意思）。',
+      '- **必须带上视频链接**：日报里每条都有 BV 号或 `https://www.bilibili.com/video/BV…` 链接，',
+      '  把它原样贴出来（QQ 会自动变成可点链接）。链接**单独放一行**，别混在句子中间。',
       '- 如果这一轮确实没什么值得说的，就简单说一句"这轮没看到什么好的"，别硬凑。',
       '- 不要提"日报""插件""MCP"这类词，直接说你看到的内容。',
     ].join('\n');
