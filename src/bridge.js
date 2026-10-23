@@ -6856,6 +6856,8 @@ async function main() {
   loadSocialV2State();
   startStudyReminders();
   startAuthHealthWatch();
+  // 同理：日报看护里的 BILI_OUT_DIR 等 const 声明在文件更靠后处，延迟启动避免 TDZ。
+  setTimeout(() => startBiliDigestWatch(), 6000).unref?.();
 
   function isSocialEnabled() {
     return currentMode === 'reserved' && cfg.social?.enabled !== false;
@@ -8341,6 +8343,90 @@ async function main() {
       return '【系统提醒·重要】DSH 的登录凭证**已经过期**，你现在收不到主人的任何消息（他发的都进不来）。请在能说话时提醒主人：跑一下 qq-bridge 的 scripts/start-dsh.ps1 更新 token。\n\n';
     }
     return `【系统提醒】DSH 的登录凭证还有 ${days.toFixed(1)} 天过期；过期后你就收不到主人的任何消息了。请在回复里自然地带一句，提醒他跑一下 qq-bridge 的 scripts/start-dsh.ps1 更新 token。\n\n`;
+  }
+
+  // ── 刷B站日报 → 让她私聊转述给主人（2026-10-23）──────────────────────
+  // 主人要求「把她的推送内容交给 3952379660，由她发给 1773543207」。
+  // 数据来源：刷B站插件把日报写在 ~/.dsh/bili-duty/out/<日期>.md，每跑一轮追加一段。
+  // 做法：定时看这份文件的 mtime/size，变了就唤醒她，让她**用自己的话**转述给主人 ——
+  // 不原样贴 Markdown（QQ 上会显示成乱码，而且那样就不像她了）。
+  const BILI_OUT_DIR = path.join(process.env.USERPROFILE || '', '.dsh', 'bili-duty', 'out');
+  const BILI_DIGEST_STATE = path.join(STATE_DIR, 'bili-digest.json');
+  var biliDigestTimer = null;
+
+  function biliDigestState() {
+    const raw = readJsonSafe(BILI_DIGEST_STATE, null);
+    return raw && typeof raw === 'object' && raw.seen ? raw : { seen: {} };
+  }
+  function saveBiliDigestState(s) {
+    try { atomicWriteJson(BILI_DIGEST_STATE, s); } catch { }
+  }
+
+  /** 今天这份日报的 mtime/size；没有就返回 null。 */
+  function todayDigestFile() {
+    try {
+      const d = new Date();
+      const pad = (n) => String(n).padStart(2, '0');
+      const key = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+      const file = path.join(BILI_OUT_DIR, `${key}.md`);
+      const stat = fs.statSync(file);
+      return { key, file, mtime: stat.mtimeMs, size: stat.size };
+    } catch {
+      return null;
+    }
+  }
+
+  function biliDigestPrompt(text) {
+    const body = String(text ?? '').trim();
+    const trimmed = body.length > 3500 ? `${body.slice(0, 3500)}\n……（日报过长，已截断）` : body;
+    return [
+      '【刷B站日报】「刷B站」插件刚跑完一轮，写了下面这份日报（Markdown，别原样转发）：',
+      '',
+      trimmed,
+      '',
+      '请你**用自己的话**在私聊里跟主人说这一轮挑到什么：',
+      '- 1~3 条消息，不要超过 3 条；像朋友分享看到的好东西，不要念报告、不要贴 Markdown、不要列点。',
+      '- 挑一两条你觉得最值得说的，说出**你自己的看法**（值不值得看、哪里有意思）。',
+      '- 如果这一轮确实没什么值得说的，就简单说一句"这轮没看到什么好的"，别硬凑。',
+      '- 不要提"日报""插件""MCP"这类词，直接说你看到的内容。',
+    ].join('\n');
+  }
+
+  function startBiliDigestWatch() {
+    const ownerKey = `private:${String(cfg.ownerQQ ?? '')}`;
+    if (biliDigestTimer) clearInterval(biliDigestTimer);
+    biliDigestTimer = setInterval(() => {
+      try {
+        if (cfg.socialV2?.enabled === false) return;
+        if (currentMode !== 'reserved2' || socialV2.paused) return;
+        if (!isSessionAllowedInCurrentMode(ownerKey)) return;
+        const info = todayDigestFile();
+        if (!info) return;
+        const st = biliDigestState();
+        const prev = st.seen[info.key];
+        if (prev && prev.mtime === info.mtime && prev.size === info.size) return; // 没变化
+        // 深夜不打扰：8:00-23:00 之外只记不推，白天第一次检查时会补推
+        const hour = new Date().getHours();
+        if (hour < 8 || hour >= 23) return;
+        const text = String(fs.readFileSync(info.file, 'utf8') || '');
+        // 占位报告 vs 真报告：日报是**追加**写的，失败的那轮会在文件开头留一段
+        // "这一轮没写出报告"，所以不能只看有没有这句话 —— 得看有没有真内容
+        //（「挑中」字样或具体的 "### BV…" 条目）。
+        const isPlaceholder = /这一轮没写出报告/.test(text) && !/挑中|###\s*BV/.test(text);
+        if (isPlaceholder) {
+          st.seen[info.key] = { mtime: info.mtime, size: info.size, skipped: 'placeholder' };
+          saveBiliDigestState(st);
+          return;
+        }
+        st.seen[info.key] = { mtime: info.mtime, size: info.size, at: new Date().toISOString() };
+        saveBiliDigestState(st);
+        log(`[reserved2] 刷B站日报有更新 → 转给她私聊主人（${info.key}，${Math.round(info.size / 1024)}KB）`);
+        void deliverPrompt(ownerKey, biliDigestPrompt(text)).catch((error) => log('刷B站日报投递失败:', error?.message ?? error));
+      } catch (error) {
+        log('刷B站日报检查失败:', error?.message ?? error);
+      }
+    }, 3 * 60 * 1000);
+    biliDigestTimer.unref?.();
   }
 
   function buildStudyPlanLine(key) {
