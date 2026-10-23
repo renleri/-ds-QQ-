@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
@@ -141,6 +141,9 @@
         <hr>
         <label>关键词（逗号分隔，留空则不用）<input type="text" id="f-keywords" placeholder="例如：抽象,整活"></label>
         <label>赤石 UP 名单（一行一个）<textarea id="f-upList" rows="4"></textarea></label>
+        <label>dsh 路径（跑一轮用；npx 装的要指向 …/@deepseek-ai/dsh/lib/bin.js）
+          <input type="text" id="f-dshBin" placeholder="留空则自动在常见位置查找">
+        </label>
         <div class="actions">
           <button id="bili-save">保存</button>
           <span id="bili-save-log" class="sub"></span>
@@ -290,6 +293,7 @@ function fillBiliForm(cfg) {
   setVal('f-mentionName', cfg.mentionName);
   setVal('f-keywords', Array.isArray(cfg.keywords) ? cfg.keywords.join(',') : (cfg.keywords || ''));
   setVal('f-upList', cfg.upList);
+  setVal('f-dshBin', cfg.dshBin);
 }
 
 async function saveBiliForm() {
@@ -311,6 +315,7 @@ async function saveBiliForm() {
     bait: $('f-bait').checked,
     keywords: $('f-keywords').value.split(/[,，、\s]+/).map((s) => s.trim()).filter(Boolean),
     upList: $('f-upList').value,
+    dshBin: $('f-dshBin').value.trim(),
   };
   // 二次确认：只有这两项会"拿你的号说话"，改了就提醒
   const risky = [];

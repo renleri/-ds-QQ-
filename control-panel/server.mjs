@@ -219,6 +219,10 @@ const BILI_WRITABLE = new Set([
   'perDay', 'perRun', 'peakValley', 'cruise', 'bait', 'upList', 'noon', 'night',
   'autoComment', 'transcribe', 'asrModel', 'commentPerRound', 'mentionName',
   'dmMode', 'dmUid', 'keywords', 'mode', 'reportLevel', 'replyToComments', 'replyPerRound',
+  // dshBin：跑一轮要靠它找到 dsh 可执行文件。npx 装的 dsh 没有全局命令，
+  // 必须显式指向 …/@deepseek-ai/dsh/lib/bin.js，否则日志会写「没在常见位置找到 dsh」
+  // 且退化成 cmd 调用（撞 8191 字符上限 → 命令行太长）。
+  'dshBin',
 ]);
 
 /** 允许的动作（白名单；不接受任意命令）。 */
