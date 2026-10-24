@@ -687,7 +687,13 @@ function releaseLock() {
 // ── 工具 ────────────────────────────────────────────────────────────────────
 // 日志同时输出到 stdout 与 state/bridge.log（守护窗口不可见时也能排查）
 function log(...args) {
-  const line = `${new Date().toISOString().slice(11, 19)} [bridge] ${args.map((a) => redactSensitiveText(typeof a === 'string' ? a : JSON.stringify(a))).join(' ')}`.replace(/[\r\n]+/g, ' ');
+  // 时间戳用**本地时间 + 日期**：以前是 toISOString().slice(11,19)（UTC，只到时分秒），
+  // 结果本地 23:10 的日志显示成 15:10，主人排障时以为"下午三点就出问题了"。
+  // 带日期还有个好处：升级前后（旧日志无日期）能一眼分开。
+  const d = new Date();
+  const p2 = (n) => String(n).padStart(2, '0');
+  const ts = `${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}`;
+  const line = `${ts} [bridge] ${args.map((a) => redactSensitiveText(typeof a === 'string' ? a : JSON.stringify(a))).join(' ')}`.replace(/[\r\n]+/g, ' ');
   console.log(line);
   try {
     fs.mkdirSync(STATE_DIR, { recursive: true });
