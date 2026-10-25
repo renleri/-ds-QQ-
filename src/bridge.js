@@ -9055,6 +9055,18 @@ async function main() {
     promptQueues.clear();
   }
 
+  // 判断一条消息是不是别的机器人发的。
+  // OneBot v11 没有统一的 isBot 字段，各实现做法不一（有的给 event.is_bot，
+  // 有的给 sender.is_bot，有的把 sender.role 设成 'bot'），所以三个都看。
+  // 命中就按「观察群」待遇处理：记账、喂黑话，但**不唤醒、不回复** ——
+  // 目的是防止放行群里出现 bot 时她去接话，甚至两个 bot 无限对聊（这个群里就有一堆）。
+  function isBotSender(event) {
+    const s = event?.sender ?? {};
+    if (event?.is_bot === true || s?.is_bot === true) return true;
+    if (String(s?.role ?? '').toLowerCase() === 'bot') return true;
+    return false;
+  }
+
   // QQ 消息 → DSH prompt
   async function handleIncoming(kind, id, event, cfg) {
     const key = convKey(kind, id);
@@ -9062,6 +9074,12 @@ async function main() {
     const observed = kind === 'group' && isObservedGroup(id);
     if (!observed && !modeAllowed(key, kind, id, cfg, currentMode)) {
       log(`忽略未授权会话 ${key}（当前模式 ${currentMode}，来自 ${event.user_id}）`);
+      return;
+    }
+    // 别的 bot 发的消息：直接忽略（连记账都不做 —— bot 的话没有学习价值，
+    // 而且要避免两个 bot 无限对聊）。只有真人才会进入正常流程。
+    if (!observed && isBotSender(event)) {
+      log(`[旁观] 忽略 bot 消息 ${key}（来自 ${event.user_id}）`);
       return;
     }
     const resolveAtName = async (qq) => {

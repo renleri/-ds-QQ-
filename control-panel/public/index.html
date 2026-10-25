@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
@@ -70,6 +70,20 @@
 </header>
 
 <main>
+  <section class="card" id="card-sl">
+    <h2><span class="dot" id="sl-dot"></span> SnowLuma 网关</h2>
+    <dl>
+      <dt>状态</dt><dd id="sl-on">—</dd>
+      <dt>版本</dt><dd id="sl-ver">—</dd>
+      <dt>平台</dt><dd id="sl-plat" class="mono">—</dd>
+      <dt>运行时长</dt><dd id="sl-uptime">—</dd>
+      <dt>内存</dt><dd id="sl-mem">—</dd>
+    </dl>
+    <div class="actions">
+      <a href="http://127.0.0.1:5099/" target="_blank"><button>打开 SnowLuma WebUI</button></a>
+    </div>
+  </section>
+
   <section class="card" id="card-dsh">
     <h2><span class="dot" id="dsh-dot"></span> DeepSeek Harness</h2>
     <dl>
@@ -189,7 +203,26 @@ async function load() {
   }
 }
 
+function fmtUptime(sec) {
+  if (!sec || sec < 0) return '—';
+  const d = Math.floor(sec / 86400);
+  const h = Math.floor((sec % 86400) / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  if (d > 0) return `${d} 天 ${h} 小时 ${m} 分`;
+  if (h > 0) return `${h} 小时 ${m} 分`;
+  return `${m} 分`;
+}
+
 function render(j) {
+  // SnowLuma（整条链路的底座）
+  const sl = j.snowluma || {};
+  setDot('sl-dot', sl.on ? 'ok' : 'bad');
+  txt('sl-on', sl.on ? `运行中（PID ${sl.pid}）` : '未运行');
+  txt('sl-ver', sl.version || '—');
+  txt('sl-plat', sl.platform || '—');
+  txt('sl-uptime', fmtUptime(sl.uptimeSec));
+  txt('sl-mem', sl.memoryMB ? `${sl.memoryMB} MB` : '—');
+
   // DSH
   setDot('dsh-dot', j.dsh?.running ? 'ok' : 'bad');
   txt('dsh-running', j.dsh?.running ? '运行中（3080 可连）' : '未运行');

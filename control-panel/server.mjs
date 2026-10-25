@@ -75,6 +75,59 @@ function bridgeLockPid() {
   try { process.kill(pid, 0); return pid; } catch { return null; }
 }
 
+/**
+ * SnowLuma 网关状态。
+ * 它一个进程同时监听 3000（OneBot HTTP）/3001（WS）/5099（WebUI）；
+ * WebUI 的 /api/* 需要认证，所以这里走「端口反查进程 + 读安装目录 package.json」。
+ * 进程探测要跑一次 PowerShell（约 0.5s），因此缓存 20 秒，避免每次刷新都卡。
+ */
+const SNOWLUMA_DIR = process.env.SNOWLUMA_DIR || path.join(process.env.USERPROFILE || '', 'Desktop', 'suno');
+let slCache = { at: 0, value: null };
+
+/** 跑一段 PowerShell 表达式，返回 stdout 文本（失败返回空串）。 */
+function runPowerShellText(command) {
+  return new Promise((resolve) => {
+    execFile('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', command],
+      { timeout: 15000, windowsHide: true },
+      (err, stdout) => resolve(err ? '' : String(stdout || '')));
+  });
+}
+
+async function snowlumaStatus() {
+  if (Date.now() - slCache.at < 20000 && slCache.value) return slCache.value;
+
+  let version = '';
+  try {
+    version = JSON.parse(fs.readFileSync(path.join(SNOWLUMA_DIR, 'package.json'), 'utf8')).version || '';
+  } catch { }
+
+  let pid = 0, memoryMB = 0, uptimeSec = 0;
+  const ps = [
+    '$ErrorActionPreference="SilentlyContinue"',
+    '$c = Get-NetTCPConnection -LocalPort 3000 -State Listen | Select-Object -First 1',
+    'if ($c) {',
+    '  $p = Get-CimInstance Win32_Process -Filter "ProcessId=$($c.OwningProcess)"',
+    '  if ($p) {',
+    '    $up = ((Get-Date) - [datetime]$p.CreationDate).TotalSeconds',
+    '    "$($p.ProcessId)|$([int]($p.WorkingSetSize/1MB))|$([int]$up)"',
+    '  }',
+    '}',
+  ].join('; ');
+  const out = await runPowerShellText(ps);
+  const m = /^(\d+)\|(\d+)\|(\d+)$/m.exec(String(out || '').trim());
+  if (m) { pid = Number(m[1]); memoryMB = Number(m[2]); uptimeSec = Number(m[3]); }
+
+  const value = {
+    version,
+    platform: `${process.platform}-${process.arch}`,
+    pid, memoryMB, uptimeSec,
+    on: pid > 0,
+    dir: SNOWLUMA_DIR,
+  };
+  slCache = { at: Date.now(), value };
+  return value;
+}
+
 async function collect() {
   const out = { at: new Date().toISOString(), bridge: {}, bili: {}, balance: {}, dsh: {}, auth: {} };
 
@@ -164,6 +217,9 @@ async function collect() {
 
   // ── DSH 本身 ────────────────────────────────────────────────────────
   out.dsh.running = p3080;
+
+  // ── SnowLuma 网关 ───────────────────────────────────────────────────
+  out.snowluma = await snowlumaStatus();
   return out;
 }
 
