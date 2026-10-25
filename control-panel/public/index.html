@@ -82,6 +82,10 @@
     <div class="actions">
       <a href="http://127.0.0.1:5099/" target="_blank"><button>打开 SnowLuma WebUI</button></a>
     </div>
+    <details id="sl-log-wrap" style="margin-top:10px">
+      <summary id="sl-log-sum">错误/警告日志</summary>
+      <pre id="sl-log">—</pre>
+    </details>
   </section>
 
   <section class="card" id="card-dsh">
@@ -222,6 +226,16 @@ function render(j) {
   txt('sl-plat', sl.platform || '—');
   txt('sl-uptime', fmtUptime(sl.uptimeSec));
   txt('sl-mem', sl.memoryMB ? `${sl.memoryMB} MB` : '—');
+
+  // SnowLuma 日志摘要
+  const lg = sl.logs || {};
+  if (lg.ok) {
+    $('sl-log-sum').textContent = `错误/警告日志（今天 ERROR ${lg.errCount} · WARN ${lg.warnCount} · 文件 ${lg.sizeMB}MB）`;
+    $('sl-log').textContent = (lg.recent && lg.recent.length) ? lg.recent.join('\n') : '（尾部 512KB 内没有 ERROR/WARN ✓）';
+  } else {
+    $('sl-log-sum').textContent = '错误/警告日志（读不到）';
+    $('sl-log').textContent = lg.error || '—';
+  }
 
   // DSH
   setDot('dsh-dot', j.dsh?.running ? 'ok' : 'bad');

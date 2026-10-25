@@ -128,6 +128,44 @@ async function snowlumaStatus() {
   return value;
 }
 
+/**
+ * SnowLuma 今天的错误/警告摘要。
+ * 日志动辄几 MB（今天 4.5MB、10-24 有 7MB），所以**只读文件尾部 512KB**，
+ * 按行的 \bERROR\b / \bWARN\b 筛，取最后 8 条。DEBUG 行（MsgPush.UnknownElement 那种）
+ * 占了 99%，全部丢掉 —— 否则一条有效信息都看不见。
+ */
+async function snowlumaLogs() {
+  const d = new Date();
+  const p2 = (n) => String(n).padStart(2, '0');
+  const name = `snowluma-${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}.log`;
+  const file = path.join(SNOWLUMA_DIR, 'logs', name);
+  try {
+    const stat = fs.statSync(file);
+    const take = Math.min(stat.size, 512 * 1024);
+    const buf = Buffer.alloc(take);
+    const fd = fs.openSync(file, 'r');
+    try { fs.readSync(fd, buf, 0, take, stat.size - take); } finally { fs.closeSync(fd); }
+    const lines = buf.toString('utf8').split(/\r?\n/);
+    lines.shift(); // 首行可能被截断
+    const issues = [];
+    let errCount = 0, warnCount = 0;
+    for (const line of lines) {
+      if (/\bERROR\b/.test(line)) { errCount++; issues.push(line); }
+      else if (/\bWARN\b/.test(line)) { warnCount++; issues.push(line); }
+    }
+    return {
+      ok: true,
+      file: name,
+      sizeMB: Math.round((stat.size / 1048576) * 10) / 10,
+      errCount, warnCount,
+      scanned: lines.length,
+      recent: issues.slice(-8).map((l) => l.slice(0, 320)),
+    };
+  } catch (error) {
+    return { ok: false, error: String(error?.message ?? error).slice(0, 120), file: name };
+  }
+}
+
 async function collect() {
   const out = { at: new Date().toISOString(), bridge: {}, bili: {}, balance: {}, dsh: {}, auth: {} };
 
@@ -220,6 +258,7 @@ async function collect() {
 
   // ── SnowLuma 网关 ───────────────────────────────────────────────────
   out.snowluma = await snowlumaStatus();
+  out.snowluma.logs = await snowlumaLogs();
   return out;
 }
 
