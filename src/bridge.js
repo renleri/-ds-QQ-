@@ -9070,6 +9070,15 @@ async function main() {
   // QQ 消息 → DSH prompt
   async function handleIncoming(kind, id, event, cfg) {
     const key = convKey(kind, id);
+    // 「给别的 bot 的命令」直接忽略（用 OneBot 的 raw_message 提前判断，不必等解析）。
+    // 典型是 SnowLuma 自己的状态命令：config/onebot_*.json 里 statusCommand.trigger = "#sl"，
+    // 而它 swallow:false ⇒ 这条消息会继续流到桥接，她就收到一个孤零零的 "#sl" 一头雾水
+    //（实测 10-25 14:44 她回的就是「#sl 是啥」）。观察群同样忽略：这种命令没有学习价值。
+    const rawText = String(event?.raw_message ?? '').trim();
+    if (/^#sl\s*$/i.test(rawText) || /^#sl\s+/i.test(rawText)) {
+      log(`[旁观] 忽略别的 bot 的命令 ${key}：${rawText.slice(0, 24)}`);
+      return;
+    }
     // 旁观群优先于白名单/模式：它没有被 allow 也要处理（但只学不回）
     const observed = kind === 'group' && isObservedGroup(id);
     if (!observed && !modeAllowed(key, kind, id, cfg, currentMode)) {
