@@ -1957,6 +1957,77 @@ async function main() {
           });
           return;
         }
+        // ── 按群活跃度（控制台用；2026-10-28）─────────────────────────
+        // 一个群的「活跃度」由两处决定：
+        //   ① 该群 conversation 的 wakeConfig.triggers（@ / 名字 / 提问 / 拍一拍 / 任意消息 / 概率）
+        //   ② socialV2.proactive.excludeKeys（是否给它安排「主动机会」）
+        // 只动这两处，**不动 mode / infinite**，免得撞上「无限期潜水必须留触发条件」的校验。
+        if (req.method === 'GET' && url.pathname === '/api/admin/groups') {
+          const groups = [];
+          for (const gid of (cfg.allow?.groups ?? [])) {
+            const k = `group:${String(gid)}`;
+            const st = getSocialV2State(k);
+            const tr = st.wakeConfig?.triggers ?? {};
+            groups.push({
+              key: k,
+              prob: Number(tr.probability) || 0,
+              atMention: !!tr.atMention,
+              nameMention: !!tr.nameMention,
+              question: !!tr.question,
+              poke: !!tr.poke,
+              anyMessage: !!tr.anyMessage,
+              proactive: !(cfg.socialV2?.proactive?.excludeKeys ?? []).includes(k),
+              observed: isObservedGroup(String(gid))
+            });
+          }
+          sendJson({ ok: true, groups, defaultProb: Number(cfg.socialV2?.wake?.recommendedProbability) || 0.05 });
+          return;
+        }
+        if (req.method === 'POST' && url.pathname === '/api/admin/group-activity') {
+          const body = await readBody();
+          const key = String(body.key ?? '').trim();
+          if (!/^group:\d+$/.test(key)) {
+            sendJson({ ok: false, error: 'key 必须是 group:<群号>' }, 400);
+            return;
+          }
+          const st = getSocialV2State(key);
+          if (!st.wakeConfig) st.wakeConfig = defaultWakeConfigV2();
+          const tr = (st.wakeConfig.triggers = st.wakeConfig.triggers || {});
+          if (body.prob !== undefined) {
+            const p = Number(body.prob);
+            tr.probability = Number.isFinite(p) ? Math.max(0, Math.min(1, p)) : 0;
+          }
+          for (const f of ['atMention', 'nameMention', 'question', 'poke', 'anyMessage']) {
+            if (body[f] !== undefined) tr[f] = !!body[f];
+          }
+          // 防止把她关成「永远醒不来」：至少要留一个触发条件。
+          const hasTrigger = !!(tr.atMention || tr.nameMention || tr.poke || tr.question || tr.anyMessage
+            || Number(tr.probability) > 0
+            || (Array.isArray(tr.keywords) && tr.keywords.length > 0)
+            || (Array.isArray(tr.speakerIds) && tr.speakerIds.length > 0));
+          if (!hasTrigger) {
+            sendJson({ ok: false, error: '至少要保留一个唤醒条件，否则她在这个群永远不会醒（想彻底静音，请把它从 allow.groups 移出）' }, 400);
+            return;
+          }
+          // 主动机会：改的是全局 excludeKeys（不在列表里 = 允许）
+          if (body.proactive !== undefined) {
+            const configFile = path.join(ROOT, 'config.json');
+            const file = readJsonSafe(configFile, null, true);
+            const ex = new Set(cfg.socialV2?.proactive?.excludeKeys ?? []);
+            if (body.proactive) ex.delete(key); else ex.add(key);
+            cfg.socialV2 = cfg.socialV2 || {};
+            cfg.socialV2.proactive = cfg.socialV2.proactive || {};
+            cfg.socialV2.proactive.excludeKeys = [...ex];
+            file.socialV2 = file.socialV2 || {};
+            file.socialV2.proactive = file.socialV2.proactive || {};
+            file.socialV2.proactive.excludeKeys = [...ex];
+            atomicWriteJson(configFile, file);
+          }
+          saveSocialV2State();
+          log(`[admin] 群活跃度已更新 ${key}：prob=${tr.probability ?? '-'} @=${!!tr.atMention} 名字=${!!tr.nameMention} 提问=${!!tr.question} 拍=${!!tr.poke} 任意=${!!tr.anyMessage}`);
+          sendJson({ ok: true, key, triggers: tr, proactive: !(cfg.socialV2?.proactive?.excludeKeys ?? []).includes(key) });
+          return;
+        }
         if (req.method === 'GET' && url.pathname === '/api/presets') {
           let presets = [];
           try {

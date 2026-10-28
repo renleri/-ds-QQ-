@@ -259,6 +259,21 @@ async function collect() {
   // ── SnowLuma 网关 ───────────────────────────────────────────────────
   out.snowluma = await snowlumaStatus();
   out.snowluma.logs = await snowlumaLogs();
+
+  // ── 按群活跃度（桥接的管理 API，用 console token）────────────────────
+  try {
+    const ct = readText(path.join(BRIDGE_DIR, 'state', 'console-token'));
+    if (ct && p3100) {
+      const r = await getJson(`http://127.0.0.1:3100/api/admin/groups?token=${encodeURIComponent(ct)}`);
+      if (r.json?.ok) out.groups = { ok: true, list: r.json.groups, defaultProb: r.json.defaultProb };
+      else out.groups = { ok: false, error: `桥接返回 ${r.status}` };
+    } else {
+      out.groups = { ok: false, error: !p3100 ? '桥接未运行' : '缺少控制台令牌' };
+    }
+  } catch (error) {
+    out.groups = { ok: false, error: String(error?.message ?? error).slice(0, 100) };
+  }
+
   return out;
 }
 
@@ -368,6 +383,20 @@ const server = http.createServer(async (req, res) => {
         config: r.json?.config,
         host: r.json?.host,
         detail: r.status === 200 ? '' : (r.json?.error ?? r.text ?? '').slice(0, 200),
+      });
+    }
+    // 群活跃度：转发给桥接的 /api/admin/group-activity（桥接自己做校验与存盘）
+    if (req.method === 'POST' && url.pathname === '/api/group-activity') {
+      const ct = readText(path.join(BRIDGE_DIR, 'state', 'console-token'));
+      if (!ct) return sendJson(res, 200, { ok: false, error: '缺少桥接控制台令牌' });
+      const body = await readBody(req);
+      if (!body) return sendJson(res, 400, { ok: false, error: '请求体不是合法 JSON' });
+      const r = await postJson(`http://127.0.0.1:3100/api/admin/group-activity?token=${encodeURIComponent(ct)}`, body, '');
+      return sendJson(res, 200, {
+        ok: r.status === 200 && r.json?.ok === true,
+        status: r.status,
+        detail: r.json?.error ?? (r.status === 200 ? '' : (r.text ?? '').slice(0, 160)),
+        result: r.json,
       });
     }
     if (req.method === 'POST' && url.pathname.startsWith('/api/action/')) {
