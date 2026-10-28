@@ -63,6 +63,11 @@
   .grow .g-prob { width: 74px; font: inherit; background: #0b0f14; color: var(--fg);
     border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; }
   .grow label.chk { display: flex; align-items: center; gap: 5px; font-size: 12.5px; }
+  .grow .gpresets { display: flex; align-items: center; gap: 6px; width: 100%; margin-top: 2px; }
+  .gp-btn { font: inherit; font-size: 12px; cursor: pointer; padding: 2px 9px; border-radius: 6px;
+    border: 1px solid var(--line); background: #1f2733; color: var(--dim); }
+  .gp-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .gp-btn.on { border-color: var(--accent); color: var(--accent); background: #4fc3f71a; }
   footer { padding: 0 22px 22px; color: var(--dim); font-size: 12.5px; display: flex; gap: 16px; flex-wrap: wrap; }
   .mono { font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; }
 </style>
@@ -260,8 +265,46 @@ function renderGroups(g) {
       <label class="chk"><input type="checkbox" class="g-poke"${x.poke ? ' checked' : ''}> 拍一拍</label>
       <label class="chk"><input type="checkbox" class="g-any"${x.anyMessage ? ' checked' : ''}> 任意消息</label>
       <label class="chk"><input type="checkbox" class="g-pro"${x.proactive ? ' checked' : ''}> 主动机会</label>
+      <div class="gpresets">
+        <span class="sub">一键：</span>
+        <button class="gp-btn" data-preset="mute">静音</button>
+        <button class="gp-btn" data-preset="low">低</button>
+        <button class="gp-btn" data-preset="normal">正常</button>
+        <button class="gp-btn" data-preset="high">活跃</button>
+      </div>
     </div>`).join('');
 }
+
+/* 一键档位：只填表单，不提交。数值是"经验档位"，想细调直接在下面改。 */
+const GROUP_PRESETS = {
+  mute:   { prob: 0,    at: false, name: false, q: false, poke: false, any: false, pro: false },
+  low:    { prob: 0.01, at: true,  name: true,  q: false, poke: true,  any: false, pro: false },
+  normal: { prob: 0.05, at: true,  name: true,  q: true,  poke: true,  any: false, pro: true  },
+  high:   { prob: 0.15, at: true,  name: true,  q: true,  poke: true,  any: true,  pro: true  },
+};
+
+function applyPreset(row, key) {
+  const p = GROUP_PRESETS[key];
+  if (!row || !p) return;
+  row.querySelector('.g-prob').value = p.prob;
+  row.querySelector('.g-at').checked = p.at;
+  row.querySelector('.g-name').checked = p.name;
+  row.querySelector('.g-q').checked = p.q;
+  row.querySelector('.g-poke').checked = p.poke;
+  row.querySelector('.g-any').checked = p.any;
+  row.querySelector('.g-pro').checked = p.pro;
+  row.querySelectorAll('.gp-btn').forEach((b) => b.classList.toggle('on', b.dataset.preset === key));
+  const log = $('gr-log');
+  if (log) log.textContent = '已套用档位，别忘了点「保存全部」';
+}
+
+/* 行是动态渲染的，所以用事件委托。 */
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest && e.target.closest('.gp-btn');
+  if (!btn) return;
+  e.preventDefault();
+  applyPreset(btn.closest('.grow'), btn.dataset.preset);
+});
 
 async function saveGroups() {
   const btn = $('gr-save');
