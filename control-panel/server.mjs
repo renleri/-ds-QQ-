@@ -20,7 +20,7 @@ import { execFile } from 'node:child_process';
 
 const PORT = Number(process.env.QQ_CONSOLE_PORT) || 3110;
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const BRIDGE_DIR = process.env.QQ_BRIDGE_DIR || 'D:\\肥鱼的工作区\\qq-bridge';
+const BRIDGE_DIR = process.env.QQ_BRIDGE_DIR || fileURLToPath(new URL('../qq-bridge', import.meta.url));
 const DSH_ORIGIN = process.env.DSH_ORIGIN || 'http://127.0.0.1:3080';
 const PUBLIC_DIR = path.join(HERE, 'public');
 

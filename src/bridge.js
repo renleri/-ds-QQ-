@@ -5610,7 +5610,7 @@ async function main() {
 
   /**
    * 把截图归档到 screen.archiveDir（默认 D:\鲸鱼娘的查岗记录）。
-   * 命名：2026-09-13_2152_private-1773543207.jpg
+   * 命名：2026-09-13_2152_private-<对方QQ>.jpg
    * 同时往 index.tsv 追加一行（时间 / 会话 / 文件 / 大小），超量时删最旧的。
    */
   function archiveScreenShot(srcPath, key, sizeKb) {
@@ -6583,7 +6583,7 @@ async function main() {
     }
   }
 
-  // 长期记忆排除名单（2026-09-21 主人要求：group:1124187961 的内容不要进长期记忆）。
+  // 长期记忆排除名单（2026-09-21 主人要求：某个群的内容不要进长期记忆）。
   // fail-closed：工具写入、自动整理、作用域调整三条路都拦在这里；
   // 被排除的会话既不写自己的记忆文件，也不会往共享池里镜像。
   function longTermExcludeList() {
@@ -6596,7 +6596,7 @@ async function main() {
   }
 
   // 主动机会排除名单：列在这里的会话，她不会主动找话题（只回应被 @ / 被叫 / 被提问）。
-  // 2026-09-22 主人要求「降低她在 1124187961 的活跃度」。
+  // 2026-09-22 主人要求「降低她在某个群的活跃度」。
   function isProactiveExcluded(key) {
     const list = cfg.socialV2?.proactive?.excludeKeys;
     return Array.isArray(list) && list.map((x) => String(x).trim()).includes(String(key));
@@ -8423,7 +8423,7 @@ async function main() {
   }
 
   // ── 刷B站日报 → 让她私聊转述给主人（2026-10-23）──────────────────────
-  // 主人要求「把她的推送内容交给 3952379660，由她发给 1773543207」。
+  // 主人的要求：把刷B站日报交给机器人号，由她私聊发给主人。
   // 数据来源：刷B站插件把日报写在 ~/.dsh/bili-duty/out/<日期>.md，每跑一轮追加一段。
   // 做法：定时看这份文件的 mtime/size，变了就唤醒她，让她**用自己的话**转述给主人 ——
   // 不原样贴 Markdown（QQ 上会显示成乱码，而且那样就不像她了）。

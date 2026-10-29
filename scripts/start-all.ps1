@@ -55,7 +55,7 @@ $root = Split-Path -Parent $PSScriptRoot   # scripts\ -> qq-bridge\
 Set-Location $root
 try { $Host.UI.RawUI.WindowTitle = '小鲸鱼 QQ 桥接' } catch { }
 
-$SNOWLUMA_DIR = 'C:\Users\17735\Desktop\suno'
+$SNOWLUMA_DIR = Join-Path $env:USERPROFILE 'Desktop\suno'
 $LOCK = Join-Path $root 'state\bridge.lock'
 
 function Say([string]$text, [string]$color = 'Gray') { Write-Host $text -ForegroundColor $color }

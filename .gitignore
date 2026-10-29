@@ -1,4 +1,4 @@
-# Dependencies
+﻿# Dependencies
 node_modules/
 .npm-cache/
 
@@ -36,3 +36,8 @@ knowledge/学习计划-2026秋.md
 /scripts/patch-qq-chat-v2-presleep.mjs
 /scripts/patch-qq-chat-v2-stickers.mjs
 /scripts/patch-web-mcp-timeout.mjs
+
+# 个人数据（学习计划 / 记忆库 / 运行时状态）—— 2026-10-29 补
+qq-bridge/study/schedule.json
+qq-bridge/knowledge/
+qq-bridge/state/

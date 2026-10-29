@@ -13,9 +13,10 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const SRC = path.join(os.homedir(), '.dsh', '.agent-presets');
-const OUT = process.argv[2] || 'D:/肥鱼的工作区/qq-bridge/dsh-plugin/qq-chat-presets';
+const OUT = process.argv[2] || fileURLToPath(new URL('../dsh-plugin/qq-chat-presets', import.meta.url));
 const PRESETS = ['qq-chat-v2', 'qq-chat'];
 
 /** preset.yml 只有 name/description/order 这几个扁平字段，不值得引入 YAML 依赖。 */
