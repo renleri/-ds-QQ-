@@ -3757,6 +3757,51 @@ async function main() {
           }
           return;
         }
+        if (req.method === 'POST' && url.pathname === '/api/socialV2/send-image') {
+          const body = await readBody();
+          const key = String(body.key ?? '').trim();
+          const imagePath = String(body.path ?? body.imagePath ?? '').trim();
+          const replyToMessageId = body.replyToMessageId;
+          const atUserId = body.atUserId ?? null;
+          if (!key || !imagePath) { sendJson({ ok: false, error: 'key 和 path 不能为空' }, 400); return; }
+          if (req.headers['x-agent-token'] && !agentTokenOk(key, req.headers['x-agent-token'])) { sendJson({ ok: false, error: 'agent token 无效' }, 403); return; }
+          if (req.headers['x-agent-token'] && !v2SessionAllowed(key)) { sendJson({ ok: false, error: '目标不在当前模式允许范围内' }, 403); return; }
+          if (currentMode !== 'reserved2') { sendJson({ ok: false, error: '该接口仅 reserved2 模式可用' }, 403); return; }
+          if (!req.headers['x-agent-token']) { sendJson({ ok: false, error: 'reserved2 模式发送必须携带 agent token' }, 403); return; }
+          const keyMatch = /^(group|private):(\d+)$/.exec(key);
+          if (!keyMatch) { sendJson({ ok: false, error: 'key 格式应为 group:群号 或 private:QQ号' }, 400); return; }
+          const kind = keyMatch[1];
+          const id = Number(keyMatch[2]);
+          if (!Number.isFinite(id) || id <= 0 || !modeAllowed(key, kind, id, cfg, currentMode)) { sendJson({ ok: false, error: '目标不在当前模式允许范围内' }, 403); return; }
+          if (kind === 'private' && atUserId) { sendJson({ ok: false, error: '私聊不需要 @' }, 400); return; }
+          if (shouldBlockSilentReply(key)) { sendJson({ ok: false, error: '静默模式已开启，当前不允许发送' }, 403); return; }
+          { const blocked = ownerOnlyReplyBlock(key, kind, id); if (blocked) { sendJson({ ok: false, error: blocked }, 403); return; } }
+          try {
+            const st = getSocialV2State(key);
+            const sent = await sendImageV2(key, imagePath, { replyToMessageId, atUserId });
+            st.recentMessages.push({
+              messageId: sent?.message_id ? String(sent.message_id) : null,
+              sender: '我',
+              text: `[图片:${path.basename(imagePath)}]`.slice(0, 200),
+              plain: `[图片:${path.basename(imagePath)}]`.slice(0, 200),
+              quoteTargetIsSelf: false,
+              isOwner: true,
+              ownerLabel: '我',
+              isSelf: true,
+              media: [], hasMedia: false, forwardIds: [], hasForward: false,
+              time: Date.now()
+            });
+            if (st.recentMessages.length > (Number(cfg.socialV2?.context?.recentLimit) || 100)) {
+              st.recentMessages.splice(0, st.recentMessages.length - (Number(cfg.socialV2?.context?.recentLimit) || 100));
+            }
+            saveSocialV2State();
+            log(`[reserved2] 发送图片 ${key}: ${path.basename(imagePath)}（${Math.round((sent?.bytes || 0) / 1024)}KB）`);
+            sendJson({ ok: true, messageId: sent?.message_id ?? null, bytes: sent?.bytes ?? 0 });
+          } catch (error) {
+            sendJson({ ok: false, error: String(error?.message ?? error) }, 400);
+          }
+          return;
+        }
         if (req.method === 'POST' && url.pathname === '/api/socialV2/send-sticker') {
           if (!stickerEnabled()) { sendJson({ ok: false, error: '表情包体系已关闭' }, 403); return; }
           const body = await readBody();
@@ -5610,7 +5655,7 @@ async function main() {
 
   /**
    * 把截图归档到 screen.archiveDir（默认 D:\鲸鱼娘的查岗记录）。
-   * 命名：2026-09-13_2152_private-<对方QQ>.jpg
+   * 命名：2026-09-13_2152_private-1773543207.jpg
    * 同时往 index.tsv 追加一行（时间 / 会话 / 文件 / 大小），超量时删最旧的。
    */
   function archiveScreenShot(srcPath, key, sizeKb) {
@@ -6583,7 +6628,7 @@ async function main() {
     }
   }
 
-  // 长期记忆排除名单（2026-09-21 主人要求：某个群的内容不要进长期记忆）。
+  // 长期记忆排除名单（2026-09-21 主人要求：group:1124187961 的内容不要进长期记忆）。
   // fail-closed：工具写入、自动整理、作用域调整三条路都拦在这里；
   // 被排除的会话既不写自己的记忆文件，也不会往共享池里镜像。
   function longTermExcludeList() {
@@ -6596,7 +6641,7 @@ async function main() {
   }
 
   // 主动机会排除名单：列在这里的会话，她不会主动找话题（只回应被 @ / 被叫 / 被提问）。
-  // 2026-09-22 主人要求「降低她在某个群的活跃度」。
+  // 2026-09-22 主人要求「降低她在 1124187961 的活跃度」。
   function isProactiveExcluded(key) {
     const list = cfg.socialV2?.proactive?.excludeKeys;
     return Array.isArray(list) && list.map((x) => String(x).trim()).includes(String(key));
@@ -8382,6 +8427,76 @@ async function main() {
     }
   }
 
+  // ── 发本地图片（2026-10-29，给生图用）────────────────────────────────
+  // 主人要求「生图后发给他」。OneBot 的 image 段支持 `base64://`，所以不需要图床，
+  // 直接把文件读成 base64 塞进消息即可。安全上只允许发这几个目录里的图片，
+  // 避免模型被诱导去读本机任意文件（比如凭据、日志）。
+  function imageAllowedRoots() {
+    return [
+      path.join(process.env.USERPROFILE || '', '.dsh', 'attachments'),
+      path.resolve(ROOT, '..', 'dsh-image-gen'),
+      path.join(STATE_DIR, 'images')
+    ];
+  }
+
+  async function sendImageV2(key, imagePath, options = {}) {
+    const abs = path.resolve(String(imagePath || ''));
+    const roots = imageAllowedRoots();
+    const inside = roots.some((d) => abs === d || abs.startsWith(d + path.sep));
+    if (!inside) {
+      throw new Error('只允许发送 dsh-image-gen/、~/.dsh/attachments/ 或 state/images/ 下的图片');
+    }
+    let stat;
+    try { stat = fs.statSync(abs); } catch { throw new Error(`找不到图片文件：${abs}`); }
+    if (!stat.isFile()) throw new Error('不是文件');
+    if (stat.size > 20 * 1024 * 1024) throw new Error('图片超过 20MB');
+    const buf = fs.readFileSync(abs);
+    const ext = path.extname(abs).toLowerCase();
+    const [kind, id] = key.split(':');
+    const segments = [];
+    const replyToMessageId = options.replyToMessageId;
+    const atUserId = options.atUserId;
+    if (replyToMessageId !== undefined && replyToMessageId !== null && String(replyToMessageId).trim() !== '') {
+      const rid = String(replyToMessageId).trim();
+      if (!/^-?[1-9]\d*$/.test(rid)) throw new Error('replyToMessageId 必须是非零整数');
+      segments.push({ type: 'reply', data: { id: rid } });
+    }
+    if (atUserId !== undefined && atUserId !== null && String(atUserId).trim() !== '') {
+      const at = String(atUserId).trim();
+      if (!/^\d+$/.test(at)) throw new Error('atUserId 必须是正整数 QQ 号');
+      segments.push({ type: 'at', data: { qq: at } });
+    }
+    segments.push({ type: 'image', data: { file: `base64://${buf.toString('base64')}` } });
+    const action = kind === 'private' ? 'send_private_msg' : 'send_group_msg';
+    const params = kind === 'private'
+      ? { user_id: Number(id), message: segments }
+      : { group_id: Number(id), message: segments };
+    const httpUrl = String(cfg.snowluma?.httpUrl || 'http://127.0.0.1:3000').replace(/\/+$/, '');
+    // 与文本/表情共用 sendChain，保证"先说话后发图"的顺序不乱
+    let sendResolve;
+    let sendReject;
+    const sendResult = new Promise((resolve, reject) => { sendResolve = resolve; sendReject = reject; });
+    sendChain = sendChain.then(async () => {
+      try {
+        await sleep(randInt(600, 1600));
+        const res = await fetch(`${httpUrl}/${action}`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', ...oneBotHttpAuth(cfg.snowluma) },
+          body: JSON.stringify(params),
+          signal: AbortSignal.timeout(30000)
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok || body.status !== 'ok' || body.retcode !== 0) {
+          throw new Error(`OneBot ${action} 失败: ${body.wording || body.retcode || res.status}`);
+        }
+        sendResolve({ ...body.data, bytes: buf.length, mime: ext || '.jpg' });
+      } catch (error) {
+        sendReject(error);
+      }
+    });
+    return sendResult;
+  }
+
   function authDaysLeft() {
     const st = readAuthState();
     return st ? (st.expiresAt - Date.now()) / 86400000 : null;
@@ -8423,7 +8538,7 @@ async function main() {
   }
 
   // ── 刷B站日报 → 让她私聊转述给主人（2026-10-23）──────────────────────
-  // 主人的要求：把刷B站日报交给机器人号，由她私聊发给主人。
+  // 主人要求「把她的推送内容交给 3952379660，由她发给 1773543207」。
   // 数据来源：刷B站插件把日报写在 ~/.dsh/bili-duty/out/<日期>.md，每跑一轮追加一段。
   // 做法：定时看这份文件的 mtime/size，变了就唤醒她，让她**用自己的话**转述给主人 ——
   // 不原样贴 Markdown（QQ 上会显示成乱码，而且那样就不像她了）。
