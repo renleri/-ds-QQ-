@@ -8568,6 +8568,27 @@ async function main() {
     }
   }
 
+  /** 读取刷B站自己的推送归档（digest/<YYYY-MM>.md），返回最近 limit 条。 */
+  function biliPushedHistory(limit = 20) {
+    const dir = path.join(process.env.USERPROFILE || '', '.dsh', 'bili-duty', 'digest');
+    try {
+      const files = fs.readdirSync(dir)
+        .filter((f) => /^\d{4}-\d{2}\.md$/.test(f))
+        .sort()
+        .slice(-2); // 跨月时读上个月 + 这个月
+      const lines = [];
+      for (const f of files) {
+        const text = fs.readFileSync(path.join(dir, f), 'utf8');
+        for (const line of text.split(/\r?\n/)) {
+          if (/^\d{4}-\d{2}-\d{2} · BV/.test(line)) lines.push(line.trim());
+        }
+      }
+      return lines.slice(-limit);
+    } catch {
+      return [];
+    }
+  }
+
   function biliDigestPrompt(text) {
     // 日报里的链接是 Markdown 形式 `[链接](https://…)`，而她被要求"别贴 Markdown"，
     // 照抄会连链接一起不敢用。所以先把它剥成裸 URL —— QQ 里裸链接照样可点。
@@ -8575,10 +8596,20 @@ async function main() {
       .replace(/\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/g, (_m, _label, url) => url)
       .trim();
     const trimmed = raw.length > 3500 ? `${raw.slice(0, 3500)}\n……（日报过长，已截断）` : raw;
+    // 把她之前推过的视频也一并给她：聊天时"上次那个…"她接得住，也不会拿同一个当新发现再推一遍。
+    const history = biliPushedHistory(20);
+    const historyBlock = history.length
+      ? [
+          '',
+          '【你之前已经跟主人推过这些了（聊天时可以用得上；别把同一条当新发现再推一遍）】',
+          ...history.map((l) => `· ${l.slice(0, 200)}`),
+        ].join('\n')
+      : '';
     return [
       '【刷B站日报】「刷B站」插件刚跑完一轮，写了下面这份日报（Markdown，别原样转发）：',
       '',
       trimmed,
+      historyBlock,
       '',
       '请你**用自己的话**在私聊里跟主人说这一轮挑到什么：',
       '- 1~3 条消息，不要超过 3 条；像朋友分享看到的好东西，不要念报告、不要贴 Markdown、不要列点。',
